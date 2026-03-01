@@ -71,9 +71,14 @@ def _export_onnx(
                          transB=1),
         # sigmoid → (N, 1)
         helper.make_node("Sigmoid", ["logits"],          ["proba_2d"]),
-        # squeeze: (N, 1) → (N,)
-        helper.make_node("Flatten", ["proba_2d"],        ["proba"], axis=0),
+        # squeeze: (N, 1) → (N,)  — axis=-1 로 마지막 차원만 제거
+        helper.make_node("Squeeze", ["proba_2d", "squeeze_axes"], ["proba"]),
     ]
+
+    squeeze_axes = numpy_helper.from_array(
+        np.array([-1], dtype=np.int64), name="squeeze_axes"
+    )
+    initializers.append(squeeze_axes)
 
     graph = helper.make_graph(
         nodes,

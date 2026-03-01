@@ -1,4 +1,5 @@
 import asyncio
+import pandas as pd
 from loguru import logger
 from src.config import Config
 from src.exchange import BinanceFuturesClient
@@ -108,9 +109,9 @@ class TradingBot:
 
         last_row = df.iloc[-1]
         signal_snapshot = {
-            "rsi":       float(last_row.get("rsi", 0)),
-            "macd_hist": float(last_row.get("macd_hist", 0)),
-            "atr":       float(last_row.get("atr", 0)),
+            "rsi":       float(last_row["rsi"])       if "rsi"       in last_row.index and pd.notna(last_row["rsi"])       else 0.0,
+            "macd_hist": float(last_row["macd_hist"]) if "macd_hist" in last_row.index and pd.notna(last_row["macd_hist"]) else 0.0,
+            "atr":       float(last_row["atr"])       if "atr"       in last_row.index and pd.notna(last_row["atr"])       else 0.0,
         }
 
         self.current_trade_side = signal

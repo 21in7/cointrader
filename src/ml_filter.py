@@ -53,8 +53,12 @@ class MLFilter:
         if self._onnx_path.exists():
             try:
                 import onnxruntime as ort
+                sess_opts = ort.SessionOptions()
+                sess_opts.intra_op_num_threads = 1
+                sess_opts.inter_op_num_threads = 1
                 self._onnx_session = ort.InferenceSession(
                     str(self._onnx_path),
+                    sess_options=sess_opts,
                     providers=["CPUExecutionProvider"],
                 )
                 self._lgbm_model = None
