@@ -11,9 +11,9 @@ import pandas_ta as ta
 
 from src.ml_features import FEATURE_COLS
 
-LOOKAHEAD    = 60
+LOOKAHEAD    = 90
 ATR_SL_MULT  = 1.5
-ATR_TP_MULT  = 3.0
+ATR_TP_MULT  = 2.0
 WARMUP       = 60   # 지표 안정화에 필요한 최소 행 수
 
 
