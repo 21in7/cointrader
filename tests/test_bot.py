@@ -37,10 +37,8 @@ def sample_df():
 
 @pytest.mark.asyncio
 async def test_bot_processes_signal(config, sample_df):
-    with patch("src.bot.BinanceFuturesClient") as MockExchange, \
-         patch("src.bot.TradeRepository") as MockRepo:
+    with patch("src.bot.BinanceFuturesClient") as MockExchange:
         MockExchange.return_value = AsyncMock()
-        MockRepo.return_value = MagicMock()
         bot = TradingBot(config)
 
     bot.exchange = AsyncMock()
@@ -48,8 +46,8 @@ async def test_bot_processes_signal(config, sample_df):
     bot.exchange.get_position = AsyncMock(return_value=None)
     bot.exchange.place_order = AsyncMock(return_value={"orderId": "123"})
     bot.exchange.set_leverage = AsyncMock(return_value={})
-    bot.db = MagicMock()
-    bot.db.save_trade = MagicMock(return_value={"id": "trade1"})
+    bot.exchange.calculate_quantity = MagicMock(return_value=100.0)
+    bot.exchange.MIN_NOTIONAL = 5.0
 
     with patch("src.bot.Indicators") as MockInd:
         mock_ind = MagicMock()

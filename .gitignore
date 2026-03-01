@@ -6,3 +6,5 @@ logs/
 *.log
 .venv/
 venv/
+models/*.pkl
+data/*.parquet

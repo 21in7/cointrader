@@ -5,8 +5,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - TZ=Asia/Seoul
     volumes:
       - ./logs:/app/logs
+      - ./models:/app/models
+      - ./data:/app/data
     logging:
       driver: "json-file"
       options:
