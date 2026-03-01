@@ -140,9 +140,12 @@ class MLXFilter:
         X_np = X[FEATURE_COLS].values.astype(np.float32)
         y_np = y.values.astype(np.float32)
 
-        self._mean = X_np.mean(axis=0)
-        self._std = X_np.std(axis=0) + 1e-8
+        # nan-safe 정규화: nanmean/nanstd로 통계 계산 후 nan → 0.0 대치
+        # (z-score 후 0.0 = 평균값, 신경망에 줄 수 있는 가장 무난한 결측 대치값)
+        self._mean = np.nanmean(X_np, axis=0)
+        self._std  = np.nanstd(X_np, axis=0) + 1e-8
         X_np = (X_np - self._mean) / self._std
+        X_np = np.nan_to_num(X_np, nan=0.0)
 
         w_np = sample_weight.astype(np.float32) if sample_weight is not None else None
 
@@ -186,6 +189,7 @@ class MLXFilter:
         X_np = X[FEATURE_COLS].values.astype(np.float32)
         if self._trained and self._mean is not None:
             X_np = (X_np - self._mean) / self._std
+            X_np = np.nan_to_num(X_np, nan=0.0)
         x = mx.array(X_np)
         self._model.eval()
         logits = self._model(x)
