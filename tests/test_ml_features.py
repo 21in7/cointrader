@@ -49,9 +49,9 @@ def test_build_features_rs_zero_when_btc_ret_zero():
     features = build_features(xrp_df, "LONG", btc_df=btc_df, eth_df=eth_df)
     assert features["xrp_btc_rs"] == 0.0
 
-def test_feature_cols_has_21_items():
+def test_feature_cols_has_23_items():
     from src.ml_features import FEATURE_COLS
-    assert len(FEATURE_COLS) == 21
+    assert len(FEATURE_COLS) == 23
 
 
 def make_df(n=100):

@@ -23,6 +23,7 @@ def test_multi_symbol_stream_get_dataframe_returns_none_when_empty():
 
 def test_multi_symbol_stream_get_dataframe_returns_df_when_full():
     import pandas as pd
+    from src.data_stream import _MIN_CANDLES_FOR_SIGNAL
     stream = MultiSymbolStream(
         symbols=["XRPUSDT", "BTCUSDT", "ETHUSDT"],
         interval="1m",
@@ -32,13 +33,13 @@ def test_multi_symbol_stream_get_dataframe_returns_df_when_full():
         "timestamp": 1000, "open": 1.0, "high": 1.1,
         "low": 0.9, "close": 1.05, "volume": 100.0, "is_closed": True,
     }
-    for i in range(50):
+    for i in range(_MIN_CANDLES_FOR_SIGNAL):
         c = candle.copy()
         c["timestamp"] = 1000 + i
         stream.buffers["xrpusdt"].append(c)
     df = stream.get_dataframe("XRPUSDT")
     assert df is not None
-    assert len(df) == 50
+    assert len(df) == _MIN_CANDLES_FOR_SIGNAL
 
 
 @pytest.mark.asyncio

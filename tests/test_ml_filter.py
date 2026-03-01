@@ -12,13 +12,19 @@ def make_features(side="LONG") -> pd.Series:
 
 
 def test_no_model_file_is_not_loaded(tmp_path):
-    f = MLFilter(model_path=str(tmp_path / "nonexistent.pkl"))
+    f = MLFilter(
+        onnx_path=str(tmp_path / "nonexistent.onnx"),
+        lgbm_path=str(tmp_path / "nonexistent.pkl"),
+    )
     assert not f.is_model_loaded()
 
 
 def test_no_model_should_enter_returns_true(tmp_path):
     """모델 없으면 항상 진입 허용 (폴백)"""
-    f = MLFilter(model_path=str(tmp_path / "nonexistent.pkl"))
+    f = MLFilter(
+        onnx_path=str(tmp_path / "nonexistent.onnx"),
+        lgbm_path=str(tmp_path / "nonexistent.pkl"),
+    )
     features = make_features()
     assert f.should_enter(features) is True
 
@@ -28,7 +34,7 @@ def test_should_enter_above_threshold():
     f = MLFilter(threshold=0.60)
     mock_model = MagicMock()
     mock_model.predict_proba.return_value = np.array([[0.35, 0.65]])
-    f._model = mock_model
+    f._lgbm_model = mock_model
     features = make_features()
     assert f.should_enter(features) is True
 
@@ -38,7 +44,7 @@ def test_should_enter_below_threshold():
     f = MLFilter(threshold=0.60)
     mock_model = MagicMock()
     mock_model.predict_proba.return_value = np.array([[0.55, 0.45]])
-    f._model = mock_model
+    f._lgbm_model = mock_model
     features = make_features()
     assert f.should_enter(features) is False
 
@@ -48,8 +54,10 @@ def test_reload_model(tmp_path):
     import joblib
 
     # 모델 파일이 없는 상태에서 시작
-    model_path = tmp_path / "lgbm_filter.pkl"
-    f = MLFilter(model_path=str(model_path))
+    f = MLFilter(
+        onnx_path=str(tmp_path / "nonexistent.onnx"),
+        lgbm_path=str(tmp_path / "lgbm_filter.pkl"),
+    )
     assert not f.is_model_loaded()
 
     # _model을 직접 주입해서 is_model_loaded가 True인지 확인
