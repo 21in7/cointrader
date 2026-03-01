@@ -65,7 +65,7 @@ def test_reload_model(tmp_path):
     f._lgbm_model = mock_model
     assert f.is_model_loaded()
 
-    # reload_model 호출 시 파일이 없으면 _try_load가 _model을 변경하지 않음
-    # (기존 동작 유지 - 파일 없으면 None으로 초기화하지 않음)
+    # reload_model은 항상 _lgbm_model/_onnx_session을 초기화 후 재로드한다.
+    # 파일이 없으면 None으로 리셋되어 폴백 상태가 된다.
     f.reload_model()
-    assert f.is_model_loaded()  # mock_model이 유지됨
+    assert not f.is_model_loaded()  # 파일 없으므로 폴백 상태
