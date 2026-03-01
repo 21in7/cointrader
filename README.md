@@ -11,7 +11,6 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 LightGBM ML 필터를 
 - **ATR 기반 손절/익절**: 변동성에 따라 동적으로 SL/TP 계산 (1.5× / 3.0× ATR)
 - **리스크 관리**: 트레이드당 리스크 비율, 최대 포지션 수, 일일 손실 한도 제어
 - **포지션 복구**: 봇 재시작 시 기존 포지션 자동 감지 및 상태 복원
-- **자동 재학습**: 매일 새벽 3시 ML 모델 재학습 및 핫 리로드
 - **Discord 알림**: 진입·청산·오류 이벤트 실시간 웹훅 알림
 - **CI/CD**: Jenkins + Gitea Container Registry 기반 Docker 이미지 자동 빌드·배포
 
@@ -31,7 +30,7 @@ cointrader/
 │   ├── ml_filter.py         # LightGBM 진입 필터
 │   ├── ml_features.py       # ML 피처 빌더
 │   ├── label_builder.py     # 학습 레이블 생성
-│   ├── retrainer.py         # 모델 자동 재학습 스케줄러
+│   ├── dataset_builder.py   # 벡터화 데이터셋 빌더 (학습용)
 │   ├── risk_manager.py      # 리스크 관리
 │   ├── notifier.py          # Discord 웹훅 알림
 │   └── logger_setup.py      # Loguru 로거 설정
@@ -102,13 +101,19 @@ python scripts/fetch_history.py
 python scripts/train_model.py
 ```
 
-학습된 모델은 `models/lgbm_filter.pkl`에 저장되며, 봇이 실행 중이면 매일 새벽 3시에 자동으로 재학습·리로드됩니다.
+학습된 모델은 `models/lgbm_filter.pkl`에 저장됩니다. 재학습이 필요하면 맥미니에서 위 스크립트를 다시 실행하고 모델 파일을 컨테이너에 배포합니다.
 
 ### Apple Silicon GPU 가속 학습 (M1/M2/M3/M4)
 
 M 시리즈 맥에서는 MLX를 사용해 통합 GPU(Metal)로 학습할 수 있습니다.
 
+> **설치**: `mlx`는 Apple Silicon 전용이며 `requirements.txt`에 포함되지 않습니다.
+> 맥미니에서 별도 설치: `pip install mlx`
+
 ```bash
+# MLX 별도 설치 (맥미니 전용)
+pip install mlx
+
 # MLX 신경망 필터 학습 (GPU 자동 사용)
 python scripts/train_mlx_model.py
 
