@@ -69,7 +69,7 @@ def _process_index(args: tuple) -> dict | None:
     ind = Indicators(window)
     df_ind = ind.calculate_all()
 
-    if df_ind.isna().any().any():
+    if df_ind.iloc[-1].isna().any():
         return None
 
     signal = ind.get_signal(df_ind)
