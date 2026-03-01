@@ -84,7 +84,7 @@ def _export_onnx(
         nodes,
         "mlx_filter",
         inputs=[helper.make_tensor_value_info("X", TensorProto.FLOAT, [None, input_dim])],
-        outputs=[helper.make_tensor_value_info("proba", TensorProto.FLOAT, [None])],
+        outputs=[helper.make_tensor_value_info("proba", TensorProto.FLOAT, [-1])],
         initializer=initializers,
     )
     model_proto = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])

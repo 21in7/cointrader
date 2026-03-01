@@ -33,12 +33,25 @@ done
 echo "=== 모델 전송 시작 (백엔드: ${BACKEND}) ==="
 echo "  대상: ${LXC_HOST}:${LXC_MODELS_PATH}"
 
-# ── 원격 디렉터리 생성 + lgbm 기존 모델 백업 ─────────────────────────────────
+# ── 원격 디렉터리 생성 + 백업 + 상대 백엔드 파일 제거 ───────────────────────
+# lgbm 배포 시: 기존 lgbm 백업 후 ONNX 파일 삭제 (ONNX 우선순위 때문에 lgbm이 무시되는 것 방지)
+# mlx 배포 시: lgbm 파일 삭제 (명시적으로 mlx만 사용)
 ssh "${LXC_HOST}" "
   mkdir -p '${LXC_MODELS_PATH}'
-  if [ '$BACKEND' = 'lgbm' ] && [ -f '${LXC_MODELS_PATH}/lgbm_filter.pkl' ]; then
-    cp '${LXC_MODELS_PATH}/lgbm_filter.pkl' '${LXC_MODELS_PATH}/lgbm_filter_prev.pkl'
-    echo '  기존 lgbm 모델 백업 완료'
+  if [ '$BACKEND' = 'lgbm' ]; then
+    if [ -f '${LXC_MODELS_PATH}/lgbm_filter.pkl' ]; then
+      cp '${LXC_MODELS_PATH}/lgbm_filter.pkl' '${LXC_MODELS_PATH}/lgbm_filter_prev.pkl'
+      echo '  기존 lgbm 모델 백업 완료'
+    fi
+    if [ -f '${LXC_MODELS_PATH}/mlx_filter.weights.onnx' ]; then
+      rm '${LXC_MODELS_PATH}/mlx_filter.weights.onnx'
+      echo '  ONNX 파일 제거 완료 (lgbm 우선 적용)'
+    fi
+  else
+    if [ -f '${LXC_MODELS_PATH}/lgbm_filter.pkl' ]; then
+      rm '${LXC_MODELS_PATH}/lgbm_filter.pkl'
+      echo '  lgbm 파일 제거 완료 (mlx 우선 적용)'
+    fi
   fi
 "
 
