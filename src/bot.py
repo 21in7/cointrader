@@ -82,7 +82,9 @@ class TradingBot:
             pos_side = "LONG" if float(position["positionAmt"]) > 0 else "SHORT"
             if (pos_side == "LONG" and signal == "SHORT") or \
                (pos_side == "SHORT" and signal == "LONG"):
-                await self._close_position(position)
+                await self._close_and_reenter(
+                    position, signal, df_with_indicators, btc_df=btc_df, eth_df=eth_df
+                )
 
     async def _open_position(self, signal: str, df):
         balance = await self.exchange.get_balance()
@@ -165,6 +167,29 @@ class TradingBot:
         self.risk.record_pnl(pnl)
         self.current_trade_side = None
         logger.success(f"포지션 청산: PnL={pnl:.4f} USDT")
+
+    async def _close_and_reenter(
+        self,
+        position: dict,
+        signal: str,
+        df,
+        btc_df=None,
+        eth_df=None,
+    ) -> None:
+        """기존 포지션을 청산하고, ML 필터 통과 시 반대 방향으로 즉시 재진입한다."""
+        await self._close_position(position)
+
+        if not self.risk.can_open_new_position():
+            logger.info("최대 포지션 수 도달 — 재진입 건너뜀")
+            return
+
+        if self.ml_filter.is_model_loaded():
+            features = build_features(df, signal, btc_df=btc_df, eth_df=eth_df)
+            if not self.ml_filter.should_enter(features):
+                logger.info(f"ML 필터 차단: {signal} 재진입 무시")
+                return
+
+        await self._open_position(signal, df)
 
     async def run(self):
         logger.info(f"봇 시작: {self.config.symbol}, 레버리지 {self.config.leverage}x")
