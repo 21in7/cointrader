@@ -54,7 +54,7 @@ class KlineStream:
         stream_name = f"{self.symbol}@kline_{self.interval}"
         logger.info(f"WebSocket 스트림 시작: {stream_name}")
         try:
-            async with bm.futures_kline_socket(
+            async with bm.kline_futures_socket(
                 symbol=self.symbol.upper(), interval=self.interval
             ) as stream:
                 while True:
