@@ -40,12 +40,12 @@ class KlineStream:
             "is_closed": k["x"],
         }
 
-    def handle_message(self, msg: dict):
+    async def handle_message(self, msg: dict):
         candle = self.parse_kline(msg)
         if candle["is_closed"]:
             self.buffer.append(candle)
             if self.on_candle:
-                self.on_candle(candle)
+                await self.on_candle(candle)
 
     def get_dataframe(self) -> pd.DataFrame | None:
         if len(self.buffer) < _MIN_CANDLES_FOR_SIGNAL:
@@ -90,7 +90,7 @@ class KlineStream:
             ) as stream:
                 while True:
                     msg = await stream.recv()
-                    self.handle_message(msg)
+                    await self.handle_message(msg)
         finally:
             await client.close_connection()
 
@@ -129,7 +129,7 @@ class MultiSymbolStream:
             "is_closed": k["x"],
         }
 
-    def handle_message(self, msg: dict):
+    async def handle_message(self, msg: dict):
         # Combined stream 메시지는 {"stream": "...", "data": {...}} 형태
         if "stream" in msg:
             data = msg["data"]
@@ -145,7 +145,7 @@ class MultiSymbolStream:
         if candle["is_closed"] and symbol in self.buffers:
             self.buffers[symbol].append(candle)
             if symbol == self.primary_symbol and self.on_candle:
-                self.on_candle(candle)
+                await self.on_candle(candle)
 
     def get_dataframe(self, symbol: str) -> pd.DataFrame | None:
         key = symbol.lower()
@@ -192,6 +192,6 @@ class MultiSymbolStream:
             async with bm.futures_multiplex_socket(streams) as stream:
                 while True:
                     msg = await stream.recv()
-                    self.handle_message(msg)
+                    await self.handle_message(msg)
         finally:
             await client.close_connection()

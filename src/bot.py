@@ -1,4 +1,3 @@
-import asyncio
 import pandas as pd
 from loguru import logger
 from src.config import Config
@@ -25,12 +24,12 @@ class TradingBot:
             on_candle=self._on_candle_closed,
         )
 
-    def _on_candle_closed(self, candle: dict):
+    async def _on_candle_closed(self, candle: dict):
         xrp_df = self.stream.get_dataframe(self.config.symbol)
         btc_df = self.stream.get_dataframe("BTCUSDT")
         eth_df = self.stream.get_dataframe("ETHUSDT")
         if xrp_df is not None:
-            asyncio.create_task(self.process_candle(xrp_df, btc_df=btc_df, eth_df=eth_df))
+            await self.process_candle(xrp_df, btc_df=btc_df, eth_df=eth_df)
 
     async def _recover_position(self) -> None:
         """재시작 시 바이낸스에서 현재 포지션을 조회하여 상태 복구."""

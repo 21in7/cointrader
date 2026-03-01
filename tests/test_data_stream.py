@@ -63,11 +63,11 @@ async def test_kline_stream_parses_message():
 
 @pytest.mark.asyncio
 async def test_callback_called_on_closed_candle():
-    received = []
+    callback = AsyncMock()
     stream = KlineStream(
         symbol="XRPUSDT",
         interval="1m",
-        on_candle=lambda c: received.append(c),
+        on_candle=callback,
     )
     raw_msg = {
         "k": {
@@ -80,8 +80,8 @@ async def test_callback_called_on_closed_candle():
             "x": True,
         }
     }
-    stream.handle_message(raw_msg)
-    assert len(received) == 1
+    await stream.handle_message(raw_msg)
+    assert callback.call_count == 1
 
 
 @pytest.mark.asyncio
