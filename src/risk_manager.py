@@ -34,3 +34,14 @@ class RiskManager:
         """매일 자정 초기화"""
         self.daily_pnl = 0.0
         logger.info("일일 PnL 초기화")
+
+    def set_base_balance(self, balance: float) -> None:
+        """봇 시작 시 기준 잔고 설정 (동적 비율 계산 기준점)"""
+        self.initial_balance = balance
+
+    def get_dynamic_margin_ratio(self, balance: float) -> float:
+        """잔고에 따라 선형 감소하는 증거금 비율 반환"""
+        ratio = self.config.margin_max_ratio - (
+            (balance - self.initial_balance) * self.config.margin_decay_rate
+        )
+        return max(self.config.margin_min_ratio, min(self.config.margin_max_ratio, ratio))
