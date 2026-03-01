@@ -154,7 +154,7 @@ def _calc_features_vectorized(
     macd_sig = d["macd_signal"]
 
     bb_range = bb_upper - bb_lower
-    bb_pct = np.where(bb_range > 0, (close - bb_lower) / bb_range, 0.5)
+    bb_pct = (close - bb_lower) / (bb_range + 1e-8)
 
     ema_align = np.where(
         (ema9 > ema21) & (ema21 > ema50),  1,
@@ -163,8 +163,8 @@ def _calc_features_vectorized(
         )
     ).astype(np.float32)
 
-    atr_pct   = np.where(close > 0, atr / close, 0.0)
-    vol_ratio = np.where(vol_ma20 > 0, volume / vol_ma20, 1.0)
+    atr_pct   = atr / (close + 1e-8)
+    vol_ratio = volume / (vol_ma20 + 1e-8)
 
     ret_1 = close.pct_change(1).fillna(0).values
     ret_3 = close.pct_change(3).fillna(0).values
@@ -242,8 +242,8 @@ def _calc_features_vectorized(
         eth_r5 = _align(eth_ret_5, n).astype(np.float32)
 
         xrp_r1 = ret_1.astype(np.float32)
-        xrp_btc_rs_raw = np.where(btc_r1 != 0, xrp_r1 / btc_r1, 0.0).astype(np.float32)
-        xrp_eth_rs_raw = np.where(eth_r1 != 0, xrp_r1 / eth_r1, 0.0).astype(np.float32)
+        xrp_btc_rs_raw = (xrp_r1 / (btc_r1 + 1e-8)).astype(np.float32)
+        xrp_eth_rs_raw = (xrp_r1 / (eth_r1 + 1e-8)).astype(np.float32)
 
         extra = pd.DataFrame({
             "btc_ret_1":  _rolling_zscore(btc_r1),
