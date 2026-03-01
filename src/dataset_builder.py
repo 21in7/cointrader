@@ -116,12 +116,11 @@ def _calc_signals(d: pd.DataFrame) -> np.ndarray:
 
 
 def _rolling_zscore(arr: np.ndarray, window: int = 288) -> np.ndarray:
-    """rolling window z-score 정규화. 15분봉 기준 3일(288캔들) 윈도우.
-    절대값 피처(ATR, 수익률 등)를 레짐 변화에 무관하게 만든다.
-    min_periods=1로 초반 데이터도 활용하며, ddof=0(모표준편차)으로 계산한다."""
+    """rolling window z-score 정규화. nan은 전파된다(nan-safe).
+    15분봉 기준 3일(288캔들) 윈도우. min_periods=1로 초반 데이터도 활용."""
     s = pd.Series(arr.astype(np.float64))
     r = s.rolling(window=window, min_periods=1)
-    mean = r.mean()
+    mean = r.mean()   # pandas rolling은 nan을 자동으로 건너뜀
     std  = r.std(ddof=0)
     std  = std.where(std >= 1e-8, other=1e-8)
     z = (s - mean) / std
@@ -258,10 +257,18 @@ def _calc_features_vectorized(
         }, index=d.index)
         result = pd.concat([result, extra], axis=1)
 
-    # OI 변화율 / 펀딩비 피처 (parquet에 컬럼이 있으면 z-score, 없으면 0)
-    # OI는 최근 30일치만 제공되므로 이전 구간은 0으로 채워진 채로 들어옴
-    oi_raw = d["oi_change"].values if "oi_change" in d.columns else np.zeros(len(d))
-    fr_raw = d["funding_rate"].values if "funding_rate" in d.columns else np.zeros(len(d))
+    # OI 변화율 / 펀딩비 피처
+    # 컬럼 없으면 전체 nan, 있으면 0.0 구간(데이터 미제공 구간)을 nan으로 마스킹
+    # LightGBM은 nan을 자체 처리; MLX는 fit()에서 nanmean/nanstd + nan_to_num 처리
+    if "oi_change" in d.columns:
+        oi_raw = np.where(d["oi_change"].values == 0.0, np.nan, d["oi_change"].values)
+    else:
+        oi_raw = np.full(len(d), np.nan)
+
+    if "funding_rate" in d.columns:
+        fr_raw = np.where(d["funding_rate"].values == 0.0, np.nan, d["funding_rate"].values)
+    else:
+        fr_raw = np.full(len(d), np.nan)
 
     result["oi_change"]    = _rolling_zscore(oi_raw.astype(np.float64))
     result["funding_rate"] = _rolling_zscore(fr_raw.astype(np.float64))
@@ -356,7 +363,12 @@ def generate_dataset_vectorized(
     feat_all   = _calc_features_vectorized(d, signal_arr, btc_df=btc_df, eth_df=eth_df)
 
     # 신호 발생 + NaN 없음 + 미래 데이터 충분한 인덱스만
-    available_cols_for_nan_check = [c for c in FEATURE_COLS if c in feat_all.columns]
+    # oi_change/funding_rate는 선택적 피처(컬럼 없으면 전체 nan)이므로 NaN 체크에서 제외
+    OPTIONAL_COLS = {"oi_change", "funding_rate"}
+    available_cols_for_nan_check = [
+        c for c in FEATURE_COLS
+        if c in feat_all.columns and c not in OPTIONAL_COLS
+    ]
     valid_rows = (
         (signal_arr != "HOLD") &
         (~feat_all[available_cols_for_nan_check].isna().any(axis=1).values) &

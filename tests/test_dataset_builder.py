@@ -91,3 +91,48 @@ def test_matches_original_generate_dataset(sample_df):
     assert 0.5 <= ratio <= 2.0, (
         f"샘플 수 차이가 너무 큼: 벡터화={len(vec)}, 기존={len(orig)}, 비율={ratio:.2f}"
     )
+
+
+def test_oi_nan_masking_no_column():
+    """oi_change 컬럼이 없으면 전체가 nan이어야 한다."""
+    import numpy as np
+    import pandas as pd
+    from src.dataset_builder import _calc_features_vectorized, _calc_signals, _calc_indicators
+
+    n = 100
+    np.random.seed(0)
+    df = pd.DataFrame({
+        "open":   np.random.uniform(1, 2, n),
+        "high":   np.random.uniform(2, 3, n),
+        "low":    np.random.uniform(0.5, 1, n),
+        "close":  np.random.uniform(1, 2, n),
+        "volume": np.random.uniform(1000, 5000, n),
+    })
+    d = _calc_indicators(df)
+    sig = _calc_signals(d)
+    feat = _calc_features_vectorized(d, sig)
+
+    assert feat["oi_change"].isna().all(), "oi_change 컬럼 없을 때 전부 nan이어야 함"
+
+
+def test_oi_nan_masking_with_zeros():
+    """oi_change 컬럼이 있어도 0.0 구간은 nan으로 마스킹되어야 한다."""
+    import numpy as np
+    import pandas as pd
+    from src.dataset_builder import _calc_features_vectorized, _calc_signals, _calc_indicators
+
+    n = 100
+    np.random.seed(0)
+    df = pd.DataFrame({
+        "open":      np.random.uniform(1, 2, n),
+        "high":      np.random.uniform(2, 3, n),
+        "low":       np.random.uniform(0.5, 1, n),
+        "close":     np.random.uniform(1, 2, n),
+        "volume":    np.random.uniform(1000, 5000, n),
+        "oi_change": np.concatenate([np.zeros(50), np.random.uniform(-0.1, 0.1, 50)]),
+    })
+    d = _calc_indicators(df)
+    sig = _calc_signals(d)
+    feat = _calc_features_vectorized(d, sig)
+
+    assert feat["oi_change"].iloc[50:].notna().any(), "실제 OI 값 구간에 유한값이 있어야 함"
