@@ -1,6 +1,6 @@
 services:
   cointrader:
-    build: .
+    image: 10.1.10.28:3000/gihyeon/cointrader:latest
     container_name: cointrader
     restart: unless-stopped
     env_file:
