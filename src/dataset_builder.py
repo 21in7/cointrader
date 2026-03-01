@@ -242,8 +242,16 @@ def _calc_features_vectorized(
         eth_r5 = _align(eth_ret_5, n).astype(np.float32)
 
         xrp_r1 = ret_1.astype(np.float32)
-        xrp_btc_rs_raw = (xrp_r1 / (btc_r1 + 1e-8)).astype(np.float32)
-        xrp_eth_rs_raw = (xrp_r1 / (eth_r1 + 1e-8)).astype(np.float32)
+        xrp_btc_rs_raw = np.divide(
+            xrp_r1, btc_r1,
+            out=np.zeros_like(xrp_r1),
+            where=(btc_r1 != 0),
+        ).astype(np.float32)
+        xrp_eth_rs_raw = np.divide(
+            xrp_r1, eth_r1,
+            out=np.zeros_like(xrp_r1),
+            where=(eth_r1 != 0),
+        ).astype(np.float32)
 
         extra = pd.DataFrame({
             "btc_ret_1":  _rolling_zscore(btc_r1),

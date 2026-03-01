@@ -160,3 +160,51 @@ def test_oi_nan_masking_with_zeros():
     feat = _calc_features_vectorized(d, sig)
 
     assert feat["oi_change"].iloc[50:].notna().any(), "실제 OI 값 구간에 유한값이 있어야 함"
+
+
+def test_rs_zero_denominator():
+    """btc_r1=0일 때 RS가 inf/nan이 아닌 0.0이어야 한다 (np.divide 방식 검증)."""
+    import numpy as np
+    import pandas as pd
+    from src.dataset_builder import _calc_features_vectorized, _calc_signals, _calc_indicators
+
+    n = 500
+    np.random.seed(7)
+    # XRP close: 약간의 변동
+    xrp_close = np.cumprod(1 + np.random.randn(n) * 0.001) * 1.0
+    xrp_df = pd.DataFrame({
+        "open":   xrp_close * 0.999,
+        "high":   xrp_close * 1.005,
+        "low":    xrp_close * 0.995,
+        "close":  xrp_close,
+        "volume": np.random.rand(n) * 1000 + 500,
+    })
+    # BTC close: 완전히 고정 → btc_r1 = 0.0
+    btc_close = np.ones(n) * 50000.0
+    btc_df = pd.DataFrame({
+        "open":   btc_close,
+        "high":   btc_close,
+        "low":    btc_close,
+        "close":  btc_close,
+        "volume": np.random.rand(n) * 1000 + 500,
+    })
+    # ETH close: 약간의 변동 (eth_df 없으면 BTC 피처 자체가 계산 안 됨)
+    eth_close = np.cumprod(1 + np.random.randn(n) * 0.001) * 3000.0
+    eth_df = pd.DataFrame({
+        "open":   eth_close * 0.999,
+        "high":   eth_close * 1.005,
+        "low":    eth_close * 0.995,
+        "close":  eth_close,
+        "volume": np.random.rand(n) * 1000 + 500,
+    })
+
+    # _calc_features_vectorized를 직접 호출해 BTC/ETH 피처를 포함한 전체 피처를 검증
+    d = _calc_indicators(xrp_df)
+    signal_arr = _calc_signals(d)
+    feat = _calc_features_vectorized(d, signal_arr, btc_df=btc_df, eth_df=eth_df)
+
+    assert "xrp_btc_rs" in feat.columns, "xrp_btc_rs 컬럼이 있어야 함"
+    assert not feat["xrp_btc_rs"].isin([np.inf, -np.inf]).any(), \
+        "xrp_btc_rs에 inf가 있으면 안 됨"
+    assert not feat["xrp_btc_rs"].isna().all(), \
+        "xrp_btc_rs가 전부 nan이면 안 됨"
