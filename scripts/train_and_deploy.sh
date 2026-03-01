@@ -6,7 +6,8 @@
 #   bash scripts/train_and_deploy.sh             # LightGBM + Walk-Forward 5폴드 (기본값)
 #   bash scripts/train_and_deploy.sh mlx         # MLX GPU 학습 + Walk-Forward 5폴드
 #   bash scripts/train_and_deploy.sh lgbm 3      # LightGBM + Walk-Forward 3폴드
-#   bash scripts/train_and_deploy.sh lgbm 0      # Walk-Forward 건너뜀 (단일 학습만)
+#   bash scripts/train_and_deploy.sh mlx 0       # MLX 학습만 (Walk-Forward 건너뜀)
+#   bash scripts/train_and_deploy.sh lgbm 0      # LightGBM 학습만 (Walk-Forward 건너뜀)
 
 set -euo pipefail
 
@@ -44,15 +45,23 @@ else
     python scripts/train_model.py --data data/combined_15m.parquet --decay "$DECAY"
 fi
 
-# Walk-Forward 검증 (WF_SPLITS > 0 인 경우, lgbm 백엔드만 지원)
-if [ "$WF_SPLITS" -gt 0 ] 2>/dev/null && [ "$BACKEND" != "mlx" ]; then
+# Walk-Forward 검증 (WF_SPLITS > 0 인 경우)
+if [ "$WF_SPLITS" -gt 0 ] 2>/dev/null; then
     echo ""
     echo "=== [2.5/3] Walk-Forward 검증 (${WF_SPLITS}폴드) ==="
-    python scripts/train_model.py \
-        --data data/combined_15m.parquet \
-        --decay "$DECAY" \
-        --wf \
-        --wf-splits "$WF_SPLITS"
+    if [ "$BACKEND" = "mlx" ]; then
+        python scripts/train_mlx_model.py \
+            --data data/combined_15m.parquet \
+            --decay "$DECAY" \
+            --wf \
+            --wf-splits "$WF_SPLITS"
+    else
+        python scripts/train_model.py \
+            --data data/combined_15m.parquet \
+            --decay "$DECAY" \
+            --wf \
+            --wf-splits "$WF_SPLITS"
+    fi
 fi
 
 echo ""
