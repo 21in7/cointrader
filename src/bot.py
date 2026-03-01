@@ -20,7 +20,7 @@ class TradingBot:
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
         self.stream = MultiSymbolStream(
             symbols=[config.symbol, "BTCUSDT", "ETHUSDT"],
-            interval="1m",
+            interval="15m",
             on_candle=self._on_candle_closed,
         )
 

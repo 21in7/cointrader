@@ -44,6 +44,11 @@ class MLFilter:
         self._try_load()
 
     def _try_load(self):
+        # 로드 여부와 무관하게 두 파일의 현재 mtime을 항상 기록한다.
+        # 이렇게 해야 로드하지 않은 쪽 파일이 나중에 변경됐을 때만 리로드가 트리거된다.
+        self._loaded_onnx_mtime = _mtime(self._onnx_path)
+        self._loaded_lgbm_mtime = _mtime(self._lgbm_path)
+
         # ONNX 우선 시도
         if self._onnx_path.exists():
             try:
@@ -53,8 +58,6 @@ class MLFilter:
                     providers=["CPUExecutionProvider"],
                 )
                 self._lgbm_model = None
-                self._loaded_onnx_mtime = _mtime(self._onnx_path)
-                self._loaded_lgbm_mtime = 0.0
                 logger.info(
                     f"ML 필터 로드: ONNX ({self._onnx_path}) "
                     f"| 임계값={self._threshold}"
@@ -68,8 +71,6 @@ class MLFilter:
         if self._lgbm_path.exists():
             try:
                 self._lgbm_model = joblib.load(self._lgbm_path)
-                self._loaded_lgbm_mtime = _mtime(self._lgbm_path)
-                self._loaded_onnx_mtime = 0.0
                 logger.info(
                     f"ML 필터 로드: LightGBM ({self._lgbm_path}) "
                     f"| 임계값={self._threshold}"

@@ -11,10 +11,10 @@ import pandas_ta as ta
 
 from src.ml_features import FEATURE_COLS
 
-LOOKAHEAD    = 90
+LOOKAHEAD    = 24   # 15분봉 × 24 = 6시간 뷰
 ATR_SL_MULT  = 1.5
 ATR_TP_MULT  = 2.0
-WARMUP       = 60   # 지표 안정화에 필요한 최소 행 수
+WARMUP       = 60   # 15분봉 기준 60캔들 = 15시간 (지표 안정화 충분)
 
 
 def _calc_indicators(df: pd.DataFrame) -> pd.DataFrame:

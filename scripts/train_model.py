@@ -53,7 +53,7 @@ def _cgroup_cpu_count() -> int:
     return cpu_count()
 
 
-LOOKAHEAD = 60
+LOOKAHEAD = 24  # 15분봉 × 24 = 6시간 (dataset_builder.py와 동기화)
 ATR_SL_MULT = 1.5
 ATR_TP_MULT = 3.0
 MODEL_PATH = Path("models/lgbm_filter.pkl")
@@ -357,7 +357,7 @@ def walk_forward_auc(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data/combined_1m.parquet")
+    parser.add_argument("--data", default="data/combined_15m.parquet")
     parser.add_argument(
         "--decay", type=float, default=2.0,
         help="시간 가중치 감쇠 강도 (0=균등, 2.0=최신이 ~7.4배 높음)",

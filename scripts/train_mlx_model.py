@@ -146,7 +146,7 @@ def train_mlx(data_path: str, time_weight_decay: float = 2.0) -> float:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data/combined_1m.parquet")
+    parser.add_argument("--data", default="data/combined_15m.parquet")
     parser.add_argument(
         "--decay", type=float, default=2.0,
         help="시간 가중치 감쇠 강도 (0=균등, 2.0=최신이 ~7.4배 높음)",

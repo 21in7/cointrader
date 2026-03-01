@@ -5,13 +5,21 @@ import pandas as pd
 from binance import AsyncClient, BinanceSocketManager
 from loguru import logger
 
+# 15분봉 기준 EMA50 안정화에 필요한 최소 캔들 수.
+# EMA50=50, StochRSI(14,14,3,3)=44, MACD(12,26,9)=33 중 최댓값에 여유분 추가.
+_MIN_CANDLES_FOR_SIGNAL = 100
+
+# 초기 구동 시 REST API로 가져올 과거 캔들 수.
+# 15분봉 200개 = 50시간치 — EMA50(12.5h) 대비 4배 여유.
+_PRELOAD_LIMIT = 200
+
 
 
 class KlineStream:
     def __init__(
         self,
         symbol: str,
-        interval: str = "1m",
+        interval: str = "15m",
         buffer_size: int = 200,
         on_candle: Callable = None,
     ):
@@ -40,13 +48,13 @@ class KlineStream:
                 self.on_candle(candle)
 
     def get_dataframe(self) -> pd.DataFrame | None:
-        if len(self.buffer) < 50:
+        if len(self.buffer) < _MIN_CANDLES_FOR_SIGNAL:
             return None
         df = pd.DataFrame(list(self.buffer))
         df.set_index("timestamp", inplace=True)
         return df
 
-    async def _preload_history(self, client: AsyncClient, limit: int = 200):
+    async def _preload_history(self, client: AsyncClient, limit: int = _PRELOAD_LIMIT):
         """REST API로 과거 캔들 데이터를 버퍼에 미리 채운다."""
         logger.info(f"과거 캔들 {limit}개 로드 중...")
         klines = await client.futures_klines(
@@ -96,7 +104,7 @@ class MultiSymbolStream:
     def __init__(
         self,
         symbols: list[str],
-        interval: str = "1m",
+        interval: str = "15m",
         buffer_size: int = 200,
         on_candle: Callable = None,
     ):
@@ -142,13 +150,13 @@ class MultiSymbolStream:
     def get_dataframe(self, symbol: str) -> pd.DataFrame | None:
         key = symbol.lower()
         buf = self.buffers.get(key)
-        if buf is None or len(buf) < 50:
+        if buf is None or len(buf) < _MIN_CANDLES_FOR_SIGNAL:
             return None
         df = pd.DataFrame(list(buf))
         df.set_index("timestamp", inplace=True)
         return df
 
-    async def _preload_history(self, client: AsyncClient, limit: int = 200):
+    async def _preload_history(self, client: AsyncClient, limit: int = _PRELOAD_LIMIT):
         """REST API로 모든 심볼의 과거 캔들을 버퍼에 미리 채운다."""
         for symbol in self.symbols:
             logger.info(f"{symbol.upper()} 과거 캔들 {limit}개 로드 중...")

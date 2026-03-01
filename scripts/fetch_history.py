@@ -113,9 +113,9 @@ def main():
     )
     parser.add_argument("--symbols", nargs="+", default=["XRPUSDT"])
     parser.add_argument("--symbol",   default=None, help="단일 심볼 (--symbols 미사용 시)")
-    parser.add_argument("--interval", default="1m")
-    parser.add_argument("--days",     type=int, default=90)
-    parser.add_argument("--output",   default="data/xrpusdt_1m.parquet")
+    parser.add_argument("--interval", default="15m")
+    parser.add_argument("--days",     type=int, default=365)
+    parser.add_argument("--output",   default="data/combined_15m.parquet")
     args = parser.parse_args()
 
     # 하위 호환: --symbol 단독 사용 시 symbols로 통합

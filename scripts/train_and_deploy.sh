@@ -26,20 +26,19 @@ cd "$PROJECT_ROOT"
 echo "=== [1/3] 데이터 수집 (XRP + BTC + ETH 3심볼, 1년치) ==="
 python scripts/fetch_history.py \
     --symbols XRPUSDT BTCUSDT ETHUSDT \
-    --interval 1m \
+    --interval 15m \
     --days 365 \
-    --output data/xrpusdt_1m.parquet
-# 결과: data/combined_1m.parquet (타임스탬프 기준 병합)
+    --output data/combined_15m.parquet
 
 echo ""
 echo "=== [2/3] 모델 학습 (21개 피처: XRP 13 + BTC/ETH 상관관계 8) ==="
 DECAY="${TIME_WEIGHT_DECAY:-2.0}"
 if [ "$BACKEND" = "mlx" ]; then
     echo "  백엔드: MLX (Apple Silicon GPU), decay=${DECAY}"
-    python scripts/train_mlx_model.py --data data/combined_1m.parquet --decay "$DECAY"
+    python scripts/train_mlx_model.py --data data/combined_15m.parquet --decay "$DECAY"
 else
     echo "  백엔드: LightGBM (CPU), decay=${DECAY}"
-    python scripts/train_model.py --data data/combined_1m.parquet --decay "$DECAY"
+    python scripts/train_model.py --data data/combined_15m.parquet --decay "$DECAY"
 fi
 
 echo ""
