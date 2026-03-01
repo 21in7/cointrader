@@ -19,19 +19,20 @@ def config():
 
 @pytest.mark.asyncio
 async def test_set_leverage(config):
-    client = BinanceFuturesClient(config)
-    with patch.object(
-        client.client,
-        "futures_change_leverage",
-        return_value={"leverage": 10},
-    ):
+    with patch("src.exchange.Client") as MockClient:
+        mock_binance = MagicMock()
+        MockClient.return_value = mock_binance
+        mock_binance.futures_change_leverage.return_value = {"leverage": 10}
+        client = BinanceFuturesClient(config)
         result = await client.set_leverage(10)
         assert result is not None
 
 
 def test_calculate_quantity(config):
-    client = BinanceFuturesClient(config)
-    # 잔고 1000 USDT, 리스크 2%, 레버리지 10, 가격 0.5
-    qty = client.calculate_quantity(balance=1000.0, price=0.5, leverage=10)
-    # 1000 * 0.02 * 10 / 0.5 = 400
-    assert qty == pytest.approx(400.0, rel=0.01)
+    with patch("src.exchange.Client") as MockClient:
+        MockClient.return_value = MagicMock()
+        client = BinanceFuturesClient(config)
+        # 잔고 1000 USDT, 리스크 2%, 레버리지 10, 가격 0.5
+        qty = client.calculate_quantity(balance=1000.0, price=0.5, leverage=10)
+        # 1000 * 0.02 * 10 / 0.5 = 400
+        assert qty == pytest.approx(400.0, rel=0.01)
