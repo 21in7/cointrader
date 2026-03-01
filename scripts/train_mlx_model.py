@@ -118,8 +118,26 @@ def train_mlx(data_path: str, time_weight_decay: float = 2.0) -> float:
 
     val_proba = model.predict_proba(X_val)
     auc = roc_auc_score(y_val, val_proba)
-    print(f"\n검증 AUC: {auc:.4f}")
-    print(classification_report(y_val, (val_proba >= 0.60).astype(int)))
+
+    # 최적 임계값 탐색: 최소 재현율(0.15) 조건부 정밀도 최대화
+    from sklearn.metrics import precision_recall_curve
+    precisions, recalls, thresholds = precision_recall_curve(y_val, val_proba)
+    precisions, recalls = precisions[:-1], recalls[:-1]
+
+    MIN_RECALL = 0.15
+    valid_idx = np.where(recalls >= MIN_RECALL)[0]
+    if len(valid_idx) > 0:
+        best_idx  = valid_idx[np.argmax(precisions[valid_idx])]
+        best_thr  = float(thresholds[best_idx])
+        best_prec = float(precisions[best_idx])
+        best_rec  = float(recalls[best_idx])
+    else:
+        best_thr, best_prec, best_rec = 0.50, 0.0, 0.0
+        print(f"  [경고] recall >= {MIN_RECALL} 조건 만족 임계값 없음 → 기본값 0.50 사용")
+
+    print(f"\n검증 AUC: {auc:.4f}  |  최적 임계값: {best_thr:.4f} "
+          f"(Precision={best_prec:.3f}, Recall={best_rec:.3f})")
+    print(classification_report(y_val, (val_proba >= best_thr).astype(int), zero_division=0))
 
     MLX_MODEL_PATH.parent.mkdir(exist_ok=True)
     model.save(MLX_MODEL_PATH)
@@ -133,6 +151,9 @@ def train_mlx(data_path: str, time_weight_decay: float = 2.0) -> float:
         "date": datetime.now().isoformat(),
         "backend": "mlx",
         "auc": round(auc, 4),
+        "best_threshold": round(best_thr, 4),
+        "best_precision": round(best_prec, 3),
+        "best_recall":    round(best_rec, 3),
         "samples": len(dataset),
         "train_sec": round(t3 - t2, 1),
         "time_weight_decay": time_weight_decay,
