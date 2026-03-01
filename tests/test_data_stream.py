@@ -44,3 +44,23 @@ async def test_callback_called_on_closed_candle():
     }
     stream.handle_message(raw_msg)
     assert len(received) == 1
+
+
+@pytest.mark.asyncio
+async def test_preload_history_fills_buffer():
+    stream = KlineStream(symbol="XRPUSDT", interval="1m", buffer_size=200)
+
+    # REST API 응답 형식: [open_time, open, high, low, close, volume, ...]
+    fake_klines = [
+        [1700000000000 + i * 60000, "0.5", "0.51", "0.49", "0.505", "100000",
+         0, "0", "0", "0", "0", "0"]
+        for i in range(201)  # 201개 반환 → 마지막 1개 제외 → 200개 버퍼
+    ]
+
+    mock_client = MagicMock()
+    mock_client.futures_klines.return_value = fake_klines
+
+    await stream._preload_history(mock_client, limit=200)
+
+    assert len(stream.buffer) == 200
+    assert stream.get_dataframe() is not None
