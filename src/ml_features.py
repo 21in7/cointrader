@@ -127,4 +127,8 @@ def build_features(
             "xrp_eth_rs": float(_calc_rs(ret_1, eth_ret_1)),
         })
 
+    # 실시간에서는 OI/펀딩비를 수집하지 않으므로 0으로 채워 학습 피처(23개)와 일치시킨다
+    base.setdefault("oi_change", 0.0)
+    base.setdefault("funding_rate", 0.0)
+
     return pd.Series(base)

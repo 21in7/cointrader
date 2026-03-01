@@ -264,5 +264,17 @@
     "features": 23,
     "time_weight_decay": 2.0,
     "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-02T02:00:45.931227",
+    "backend": "lgbm",
+    "auc": 0.5752,
+    "best_threshold": 0.6307,
+    "best_precision": 0.471,
+    "best_recall": 0.229,
+    "samples": 533,
+    "features": 23,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
   }
 ]

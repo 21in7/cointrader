@@ -45,6 +45,8 @@ class BinanceFuturesClient:
                 return float(b["balance"])
         return 0.0
 
+    _ALGO_ORDER_TYPES = {"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT", "TRAILING_STOP_MARKET"}
+
     async def place_order(
         self,
         side: str,
@@ -55,6 +57,16 @@ class BinanceFuturesClient:
         reduce_only: bool = False,
     ) -> dict:
         loop = asyncio.get_event_loop()
+
+        if order_type in self._ALGO_ORDER_TYPES:
+            return await self._place_algo_order(
+                side=side,
+                quantity=quantity,
+                order_type=order_type,
+                stop_price=stop_price,
+                reduce_only=reduce_only,
+            )
+
         params = dict(
             symbol=self.config.symbol,
             side=side,
@@ -73,6 +85,34 @@ class BinanceFuturesClient:
             )
         except BinanceAPIException as e:
             logger.error(f"주문 실패: {e}")
+            raise
+
+    async def _place_algo_order(
+        self,
+        side: str,
+        quantity: float,
+        order_type: str,
+        stop_price: float = None,
+        reduce_only: bool = False,
+    ) -> dict:
+        """STOP_MARKET / TAKE_PROFIT_MARKET 등 Algo Order API(/fapi/v1/algoOrder)로 전송."""
+        loop = asyncio.get_event_loop()
+        params = dict(
+            symbol=self.config.symbol,
+            side=side,
+            algoType="CONDITIONAL",
+            type=order_type,
+            quantity=quantity,
+            reduceOnly="true" if reduce_only else "false",
+        )
+        if stop_price:
+            params["triggerPrice"] = stop_price
+        try:
+            return await loop.run_in_executor(
+                None, lambda: self.client.futures_create_algo_order(**params)
+            )
+        except BinanceAPIException as e:
+            logger.error(f"Algo 주문 실패: {e}")
             raise
 
     async def get_position(self) -> dict | None:
