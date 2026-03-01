@@ -45,5 +45,95 @@
     "samples": 3269,
     "features": 21,
     "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:46:29.599674",
+    "backend": "mlx",
+    "auc": 0.516,
+    "samples": 6470,
+    "train_sec": 1.3,
+    "time_weight_decay": 2.0,
+    "model_path": "models/mlx_filter.weights"
+  },
+  {
+    "date": "2026-03-01T21:50:12.449819",
+    "backend": "lgbm",
+    "auc": 0.4772,
+    "samples": 6470,
+    "features": 21,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:50:32.491318",
+    "backend": "lgbm",
+    "auc": 0.4943,
+    "samples": 6470,
+    "features": 21,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:50:48.665654",
+    "backend": "lgbm",
+    "auc": 0.4943,
+    "samples": 6470,
+    "features": 21,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:51:02.539565",
+    "backend": "lgbm",
+    "auc": 0.4943,
+    "samples": 6470,
+    "features": 21,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:51:09.830250",
+    "backend": "lgbm",
+    "auc": 0.4925,
+    "samples": 1716,
+    "features": 13,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:51:20.133303",
+    "backend": "lgbm",
+    "auc": 0.54,
+    "samples": 1716,
+    "features": 13,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:51:25.445363",
+    "backend": "lgbm",
+    "auc": 0.4943,
+    "samples": 6470,
+    "features": 21,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T21:52:24.296191",
+    "backend": "lgbm",
+    "auc": 0.54,
+    "samples": 1716,
+    "features": 13,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T22:00:34.737597",
+    "backend": "lgbm",
+    "auc": 0.5097,
+    "samples": 6470,
+    "features": 21,
+    "time_weight_decay": 3.0,
+    "model_path": "models/lgbm_filter.pkl"
   }
 ]

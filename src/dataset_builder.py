@@ -115,6 +115,16 @@ def _calc_signals(d: pd.DataFrame) -> np.ndarray:
     return signal_arr
 
 
+def _rolling_zscore(arr: np.ndarray, window: int = 200) -> np.ndarray:
+    """rolling window z-score 정규화. window 미만 구간은 0으로 채운다.
+    절대값 피처(수익률, ATR 등)를 레짐 변화에 무관하게 만든다."""
+    s = pd.Series(arr.astype(np.float64))
+    mean = s.rolling(window, min_periods=window).mean()
+    std  = s.rolling(window, min_periods=window).std()
+    z = (s - mean) / std.where(std > 0, other=np.nan)
+    return z.fillna(0).values.astype(np.float32)
+
+
 def _calc_features_vectorized(
     d: pd.DataFrame,
     signal_arr: np.ndarray,
@@ -158,6 +168,13 @@ def _calc_features_vectorized(
     ret_3 = close.pct_change(3).fillna(0).values
     ret_5 = close.pct_change(5).fillna(0).values
 
+    # 절대값 피처를 rolling z-score로 정규화 (레짐 변화에 강하게)
+    atr_pct_z   = _rolling_zscore(atr_pct)
+    vol_ratio_z = _rolling_zscore(vol_ratio)
+    ret_1_z     = _rolling_zscore(ret_1)
+    ret_3_z     = _rolling_zscore(ret_3)
+    ret_5_z     = _rolling_zscore(ret_5)
+
     prev_macd     = macd.shift(1).fillna(0).values
     prev_macd_sig = macd_sig.shift(1).fillna(0).values
 
@@ -190,11 +207,11 @@ def _calc_features_vectorized(
         "ema_align":       ema_align,
         "stoch_k":         stoch_k.values.astype(np.float32),
         "stoch_d":         stoch_d.values.astype(np.float32),
-        "atr_pct":         atr_pct.astype(np.float32),
-        "vol_ratio":       vol_ratio.astype(np.float32),
-        "ret_1":           ret_1.astype(np.float32),
-        "ret_3":           ret_3.astype(np.float32),
-        "ret_5":           ret_5.astype(np.float32),
+        "atr_pct":         atr_pct_z,
+        "vol_ratio":       vol_ratio_z,
+        "ret_1":           ret_1_z,
+        "ret_3":           ret_3_z,
+        "ret_5":           ret_5_z,
         "signal_strength": strength,
         "side":            side,
         "_signal":         signal_arr,   # 레이블 계산용 임시 컬럼
@@ -223,13 +240,18 @@ def _calc_features_vectorized(
         eth_r5 = _align(eth_ret_5, n).astype(np.float32)
 
         xrp_r1 = ret_1.astype(np.float32)
-        xrp_btc_rs = np.where(btc_r1 != 0, xrp_r1 / btc_r1, 0.0).astype(np.float32)
-        xrp_eth_rs = np.where(eth_r1 != 0, xrp_r1 / eth_r1, 0.0).astype(np.float32)
+        xrp_btc_rs_raw = np.where(btc_r1 != 0, xrp_r1 / btc_r1, 0.0).astype(np.float32)
+        xrp_eth_rs_raw = np.where(eth_r1 != 0, xrp_r1 / eth_r1, 0.0).astype(np.float32)
 
         extra = pd.DataFrame({
-            "btc_ret_1": btc_r1, "btc_ret_3": btc_r3, "btc_ret_5": btc_r5,
-            "eth_ret_1": eth_r1, "eth_ret_3": eth_r3, "eth_ret_5": eth_r5,
-            "xrp_btc_rs": xrp_btc_rs, "xrp_eth_rs": xrp_eth_rs,
+            "btc_ret_1":  _rolling_zscore(btc_r1),
+            "btc_ret_3":  _rolling_zscore(btc_r3),
+            "btc_ret_5":  _rolling_zscore(btc_r5),
+            "eth_ret_1":  _rolling_zscore(eth_r1),
+            "eth_ret_3":  _rolling_zscore(eth_r3),
+            "eth_ret_5":  _rolling_zscore(eth_r5),
+            "xrp_btc_rs": _rolling_zscore(xrp_btc_rs_raw),
+            "xrp_eth_rs": _rolling_zscore(xrp_eth_rs_raw),
         }, index=d.index)
         result = pd.concat([result, extra], axis=1)
 

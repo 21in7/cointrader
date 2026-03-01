@@ -190,7 +190,7 @@ def train(data_path: str, time_weight_decay: float = 2.0):
     y_train, y_val = y.iloc[:split], y.iloc[split:]
     w_train = w[:split]
 
-    # --- 클래스 불균형 처리: 언더샘플링 (가중치 인덱스 보존) ---
+    # --- 클래스 불균형 처리: 언더샘플링 (시간 가중치 인덱스 보존) ---
     pos_idx = np.where(y_train == 1)[0]
     neg_idx = np.where(y_train == 0)[0]
 
@@ -198,24 +198,25 @@ def train(data_path: str, time_weight_decay: float = 2.0):
         np.random.seed(42)
         neg_idx = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
 
-    balanced_idx = np.concatenate([pos_idx, neg_idx])
-    np.random.shuffle(balanced_idx)
+    balanced_idx = np.sort(np.concatenate([pos_idx, neg_idx]))  # 시간 순서 유지
 
     X_train = X_train.iloc[balanced_idx]
     y_train = y_train.iloc[balanced_idx]
     w_train = w_train[balanced_idx]
 
-    print(f"\n언더샘플링 적용 후 학습 데이터: {len(X_train)}개 (양성={y_train.sum()}, 음성={(y_train==0).sum()})")
-    # --------------------------------------
+    print(f"\n언더샘플링 후 학습 데이터: {len(X_train)}개 (양성={y_train.sum()}, 음성={(y_train==0).sum()})")
+    print(f"검증 데이터: {len(X_val)}개 (양성={int(y_val.sum())}, 음성={int((y_val==0).sum())})")
+    # ---------------------------------------------------------------
 
     model = lgb.LGBMClassifier(
-        n_estimators=300,
+        n_estimators=500,
         learning_rate=0.05,
         num_leaves=31,
-        min_child_samples=20,
+        min_child_samples=15,
         subsample=0.8,
         colsample_bytree=0.8,
-        class_weight="balanced",
+        reg_alpha=0.05,
+        reg_lambda=0.1,
         random_state=42,
         verbose=-1,
     )
@@ -223,13 +224,26 @@ def train(data_path: str, time_weight_decay: float = 2.0):
         X_train, y_train,
         sample_weight=w_train,
         eval_set=[(X_val, y_val)],
-        callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(50)],
+        eval_metric="auc",
+        callbacks=[
+            lgb.early_stopping(80, first_metric_only=True, verbose=False),
+            lgb.log_evaluation(50),
+        ],
     )
 
     val_proba = model.predict_proba(X_val)[:, 1]
     auc = roc_auc_score(y_val, val_proba)
-    print(f"\n검증 AUC: {auc:.4f}")
-    print(classification_report(y_val, (val_proba >= 0.60).astype(int)))
+    # 최적 임계값 탐색 (F1 기준)
+    thresholds = np.arange(0.40, 0.70, 0.05)
+    best_thr, best_f1 = 0.50, 0.0
+    for thr in thresholds:
+        pred = (val_proba >= thr).astype(int)
+        from sklearn.metrics import f1_score
+        f1 = f1_score(y_val, pred, zero_division=0)
+        if f1 > best_f1:
+            best_f1, best_thr = f1, thr
+    print(f"\n검증 AUC: {auc:.4f}  |  최적 임계값: {best_thr:.2f} (F1={best_f1:.3f})")
+    print(classification_report(y_val, (val_proba >= best_thr).astype(int), zero_division=0))
 
     if MODEL_PATH.exists():
         import shutil
@@ -259,6 +273,88 @@ def train(data_path: str, time_weight_decay: float = 2.0):
     return auc
 
 
+def walk_forward_auc(
+    data_path: str,
+    time_weight_decay: float = 2.0,
+    n_splits: int = 5,
+    train_ratio: float = 0.6,
+) -> None:
+    """Walk-Forward 검증: 슬라이딩 윈도우로 n_splits번 학습/검증 반복.
+
+    시계열 순서를 지키면서 매 폴드마다 학습 구간을 늘려가며 검증한다.
+    실제 미래 예측력의 평균 AUC를 측정하는 데 사용한다.
+    """
+    import warnings
+
+    print(f"\n=== Walk-Forward 검증 ({n_splits}폴드, decay={time_weight_decay}) ===")
+    df_raw = pd.read_parquet(data_path)
+    base_cols = ["open", "high", "low", "close", "volume"]
+    btc_df = eth_df = None
+    if "close_btc" in df_raw.columns:
+        btc_df = df_raw[[c + "_btc" for c in base_cols]].copy()
+        btc_df.columns = base_cols
+    if "close_eth" in df_raw.columns:
+        eth_df = df_raw[[c + "_eth" for c in base_cols]].copy()
+        eth_df.columns = base_cols
+    df = df_raw[base_cols].copy()
+
+    dataset = generate_dataset_vectorized(
+        df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay
+    )
+    actual_feature_cols = [c for c in FEATURE_COLS if c in dataset.columns]
+    X = dataset[actual_feature_cols].values
+    y = dataset["label"].values
+    w = dataset["sample_weight"].values
+    n = len(dataset)
+
+    step = max(1, int(n * (1 - train_ratio) / n_splits))
+    train_end_start = int(n * train_ratio)
+
+    aucs = []
+    for i in range(n_splits):
+        tr_end = train_end_start + i * step
+        val_end = tr_end + step
+        if val_end > n:
+            break
+
+        X_tr, y_tr, w_tr = X[:tr_end], y[:tr_end], w[:tr_end]
+        X_val, y_val = X[tr_end:val_end], y[tr_end:val_end]
+
+        pos_idx = np.where(y_tr == 1)[0]
+        neg_idx = np.where(y_tr == 0)[0]
+        if len(neg_idx) > len(pos_idx):
+            np.random.seed(42)
+            neg_idx = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
+        idx = np.sort(np.concatenate([pos_idx, neg_idx]))
+
+        model = lgb.LGBMClassifier(
+            n_estimators=500,
+            learning_rate=0.05,
+            num_leaves=31,
+            min_child_samples=15,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.05,
+            reg_lambda=0.1,
+            random_state=42,
+            verbose=-1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            model.fit(X_tr[idx], y_tr[idx], sample_weight=w_tr[idx])
+
+        proba = model.predict_proba(X_val)[:, 1]
+        auc = roc_auc_score(y_val, proba) if len(np.unique(y_val)) > 1 else 0.5
+        aucs.append(auc)
+        print(
+            f"  폴드 {i+1}/{n_splits}: 학습={tr_end}개, "
+            f"검증={tr_end}~{val_end} ({step}개), AUC={auc:.4f}"
+        )
+
+    print(f"\n  Walk-Forward 평균 AUC: {np.mean(aucs):.4f} ± {np.std(aucs):.4f}")
+    print(f"  폴드별: {[round(a, 4) for a in aucs]}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="data/combined_1m.parquet")
@@ -266,8 +362,14 @@ def main():
         "--decay", type=float, default=2.0,
         help="시간 가중치 감쇠 강도 (0=균등, 2.0=최신이 ~7.4배 높음)",
     )
+    parser.add_argument("--wf", action="store_true", help="Walk-Forward 검증 실행")
+    parser.add_argument("--wf-splits", type=int, default=5, help="Walk-Forward 폴드 수")
     args = parser.parse_args()
-    train(args.data, time_weight_decay=args.decay)
+
+    if args.wf:
+        walk_forward_auc(args.data, time_weight_decay=args.decay, n_splits=args.wf_splits)
+    else:
+        train(args.data, time_weight_decay=args.decay)
 
 
 if __name__ == "__main__":
