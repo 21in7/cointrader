@@ -8,11 +8,19 @@
 
 set -euo pipefail
 
-LXC_HOST="${1:-root@10.1.10.24}"
-LXC_MODELS_PATH="${2:-/root/cointrader/models}"
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+VENV_PATH="${VENV_PATH:-$PROJECT_ROOT/.venv}"
+if [ -f "$VENV_PATH/bin/activate" ]; then
+    # shellcheck source=/dev/null
+    source "$VENV_PATH/bin/activate"
+else
+    echo "경고: 가상환경을 찾을 수 없습니다 ($VENV_PATH). 시스템 Python을 사용합니다." >&2
+fi
+
+LXC_HOST="${1:-root@10.1.10.24}"
+LXC_MODELS_PATH="${2:-/root/cointrader/models}"
 
 cd "$PROJECT_ROOT"
 
