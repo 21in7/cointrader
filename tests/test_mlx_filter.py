@@ -10,23 +10,11 @@ mlx = pytest.importorskip("mlx.core", reason="MLX 미설치")
 
 
 def _make_X(n: int = 4) -> pd.DataFrame:
+    from src.ml_features import FEATURE_COLS
     rng = np.random.default_rng(0)
     return pd.DataFrame(
-        {
-            "rsi": rng.uniform(20, 80, n),
-            "macd_hist": rng.uniform(-0.1, 0.1, n),
-            "bb_pct": rng.uniform(0, 1, n),
-            "ema_align": rng.choice([-1.0, 0.0, 1.0], n),
-            "stoch_k": rng.uniform(0, 100, n),
-            "stoch_d": rng.uniform(0, 100, n),
-            "atr_pct": rng.uniform(0.001, 0.05, n),
-            "vol_ratio": rng.uniform(0.5, 3.0, n),
-            "ret_1": rng.uniform(-0.01, 0.01, n),
-            "ret_3": rng.uniform(-0.02, 0.02, n),
-            "ret_5": rng.uniform(-0.03, 0.03, n),
-            "signal_strength": rng.integers(0, 6, n).astype(float),
-            "side": rng.choice([0.0, 1.0], n),
-        }
+        rng.uniform(-1.0, 1.0, (n, len(FEATURE_COLS))).astype(np.float32),
+        columns=FEATURE_COLS,
     )
 
 
@@ -41,9 +29,10 @@ def test_mlx_gpu_device():
 def test_mlx_filter_predict_shape_untrained():
     """학습 전에도 predict_proba가 (N,) 형태를 반환해야 한다."""
     from src.mlx_filter import MLXFilter
+    from src.ml_features import FEATURE_COLS
 
     X = _make_X(4)
-    model = MLXFilter(input_dim=13, hidden_dim=32)
+    model = MLXFilter(input_dim=len(FEATURE_COLS), hidden_dim=32)
     proba = model.predict_proba(X)
     assert proba.shape == (4,)
     assert np.all((proba >= 0.0) & (proba <= 1.0))
@@ -52,12 +41,13 @@ def test_mlx_filter_predict_shape_untrained():
 def test_mlx_filter_fit_and_predict():
     """학습 후 predict_proba가 유효한 확률값을 반환해야 한다."""
     from src.mlx_filter import MLXFilter
+    from src.ml_features import FEATURE_COLS
 
     n = 100
     X = _make_X(n)
     y = pd.Series(np.random.randint(0, 2, n))
 
-    model = MLXFilter(input_dim=13, hidden_dim=32, epochs=5, batch_size=32)
+    model = MLXFilter(input_dim=len(FEATURE_COLS), hidden_dim=32, epochs=5, batch_size=32)
     model.fit(X, y)
     proba = model.predict_proba(X)
 
@@ -93,12 +83,13 @@ def test_fit_with_nan_features():
 def test_mlx_filter_save_load(tmp_path):
     """저장 후 로드한 모델이 동일한 예측값을 반환해야 한다."""
     from src.mlx_filter import MLXFilter
+    from src.ml_features import FEATURE_COLS
 
     n = 50
     X = _make_X(n)
     y = pd.Series(np.random.randint(0, 2, n))
 
-    model = MLXFilter(input_dim=13, hidden_dim=32, epochs=3, batch_size=32)
+    model = MLXFilter(input_dim=len(FEATURE_COLS), hidden_dim=32, epochs=3, batch_size=32)
     model.fit(X, y)
     proba_before = model.predict_proba(X)
 
