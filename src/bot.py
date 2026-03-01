@@ -85,9 +85,11 @@ class TradingBot:
     async def _open_position(self, signal: str, df):
         balance = await self.exchange.get_balance()
         price = df["close"].iloc[-1]
+        margin_ratio = self.risk.get_dynamic_margin_ratio(balance)
         quantity = self.exchange.calculate_quantity(
-            balance=balance, price=price, leverage=self.config.leverage
+            balance=balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
         )
+        logger.info(f"포지션 크기: 잔고={balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
         stop_loss, take_profit = Indicators(df).get_atr_stop(df, signal, price)
 
         notional = quantity * price
@@ -165,6 +167,9 @@ class TradingBot:
     async def run(self):
         logger.info(f"봇 시작: {self.config.symbol}, 레버리지 {self.config.leverage}x")
         await self._recover_position()
+        balance = await self.exchange.get_balance()
+        self.risk.set_base_balance(balance)
+        logger.info(f"기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")
         await self.stream.start(
             api_key=self.config.api_key,
             api_secret=self.config.api_secret,
