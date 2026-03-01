@@ -2,6 +2,10 @@
 바이낸스 선물 REST API로 과거 캔들 데이터를 수집해 parquet으로 저장한다.
 사용법: python scripts/fetch_history.py --symbol XRPUSDT --interval 1m --days 90
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import asyncio
 import argparse
 from datetime import datetime, timedelta
