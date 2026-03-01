@@ -129,10 +129,20 @@ class BinanceFuturesClient:
         return None
 
     async def cancel_all_orders(self):
+        """일반 오픈 주문과 Algo 오픈 주문을 모두 취소한다."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
+        await loop.run_in_executor(
             None,
             lambda: self.client.futures_cancel_all_open_orders(
                 symbol=self.config.symbol
             ),
         )
+        try:
+            await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_cancel_all_algo_open_orders(
+                    symbol=self.config.symbol
+                ),
+            )
+        except BinanceAPIException as e:
+            logger.warning(f"Algo 주문 전체 취소 실패 (무시): {e}")
