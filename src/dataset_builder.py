@@ -275,28 +275,26 @@ def _calc_labels_vectorized(
         fut_high = highs[idx + 1 : end]
         fut_low  = lows[idx + 1 : end]
 
-        label = None
+        label = 0  # 미도달(타임아웃) 시 실패로 간주
+
         for h, l in zip(fut_high, fut_low):
             if signal == "LONG":
-                if h >= tp:
-                    label = 1
-                    break
                 if l <= sl:
                     label = 0
                     break
-            else:
-                if l <= tp:
+                if h >= tp:
                     label = 1
                     break
+            else:  # SHORT
                 if h >= sl:
                     label = 0
                     break
+                if l <= tp:
+                    label = 1
+                    break
 
-        if label is None:
-            valid_mask.append(False)
-        else:
-            labels.append(label)
-            valid_mask.append(True)
+        labels.append(label)
+        valid_mask.append(True)
 
     return np.array(labels, dtype=np.int8), np.array(valid_mask, dtype=bool)
 
@@ -305,11 +303,17 @@ def generate_dataset_vectorized(
     df: pd.DataFrame,
     btc_df: pd.DataFrame | None = None,
     eth_df: pd.DataFrame | None = None,
+    time_weight_decay: float = 0.0,
 ) -> pd.DataFrame:
     """
     전체 시계열을 1회 계산해 학습 데이터셋을 생성한다.
     기존 generate_dataset()의 drop-in 대체제.
     btc_df, eth_df가 제공되면 21개 피처로 확장한다.
+
+    time_weight_decay: 지수 감쇠 강도. 0이면 균등 가중치.
+        양수일수록 최신 샘플에 더 높은 가중치를 부여한다.
+        예) 2.0 → 최신 샘플이 가장 오래된 샘플보다 e^2 ≈ 7.4배 높은 가중치.
+        결과 DataFrame에 'sample_weight' 컬럼으로 포함된다.
     """
     print("  [1/3] 전체 시계열 지표 계산 (1회)...")
     d = _calc_indicators(df)
@@ -338,4 +342,17 @@ def generate_dataset_vectorized(
     feat_final = feat_all.iloc[final_idx][available_feature_cols].copy()
     feat_final["label"] = labels
 
-    return feat_final.reset_index(drop=True)
+    # 시간 가중치: 오래된 샘플 → 낮은 가중치, 최신 샘플 → 높은 가중치
+    n = len(feat_final)
+    if time_weight_decay > 0 and n > 1:
+        weights = np.exp(time_weight_decay * np.linspace(0.0, 1.0, n)).astype(np.float32)
+        weights /= weights.mean()  # 평균 1로 정규화해 학습률 스케일 유지
+        print(f"  시간 가중치 적용 (decay={time_weight_decay}): "
+              f"min={weights.min():.3f}, max={weights.max():.3f}")
+    else:
+        weights = np.ones(n, dtype=np.float32)
+
+    feat_final = feat_final.reset_index(drop=True)
+    feat_final["sample_weight"] = weights
+
+    return feat_final
