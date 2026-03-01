@@ -15,14 +15,12 @@ class BinanceFuturesClient:
 
     MIN_NOTIONAL = 5.0  # 바이낸스 선물 최소 명목금액 (USDT)
 
-    def calculate_quantity(self, balance: float, price: float, leverage: int) -> float:
-        """리스크 기반 포지션 크기 계산 (최소 명목금액 $5 보장)"""
-        risk_amount = balance * self.config.risk_per_trade
-        notional = risk_amount * leverage
+    def calculate_quantity(self, balance: float, price: float, leverage: int, margin_ratio: float) -> float:
+        """동적 증거금 비율 기반 포지션 크기 계산 (최소 명목금액 $5 보장)"""
+        notional = balance * margin_ratio * leverage
         if notional < self.MIN_NOTIONAL:
             notional = self.MIN_NOTIONAL
         quantity = notional / price
-        # XRP는 소수점 1자리, 단 최소 명목금액 충족 여부 재확인
         qty_rounded = round(quantity, 1)
         if qty_rounded * price < self.MIN_NOTIONAL:
             qty_rounded = round(self.MIN_NOTIONAL / price + 0.05, 1)
