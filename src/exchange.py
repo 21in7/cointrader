@@ -13,12 +13,20 @@ class BinanceFuturesClient:
             api_secret=config.api_secret,
         )
 
+    MIN_NOTIONAL = 5.0  # 바이낸스 선물 최소 명목금액 (USDT)
+
     def calculate_quantity(self, balance: float, price: float, leverage: int) -> float:
-        """리스크 기반 포지션 크기 계산"""
+        """리스크 기반 포지션 크기 계산 (최소 명목금액 $5 보장)"""
         risk_amount = balance * self.config.risk_per_trade
         notional = risk_amount * leverage
+        if notional < self.MIN_NOTIONAL:
+            notional = self.MIN_NOTIONAL
         quantity = notional / price
-        return round(quantity, 1)
+        # XRP는 소수점 1자리, 단 최소 명목금액 충족 여부 재확인
+        qty_rounded = round(quantity, 1)
+        if qty_rounded * price < self.MIN_NOTIONAL:
+            qty_rounded = round(self.MIN_NOTIONAL / price + 0.05, 1)
+        return qty_rounded
 
     async def set_leverage(self, leverage: int) -> dict:
         loop = asyncio.get_event_loop()

@@ -1,11 +1,10 @@
 import asyncio
-import os
 from loguru import logger
 from src.config import Config
 from src.exchange import BinanceFuturesClient
 from src.indicators import Indicators
 from src.data_stream import KlineStream
-from src.database import TradeRepository
+from src.notifier import DiscordNotifier
 from src.risk_manager import RiskManager
 
 
@@ -13,12 +12,9 @@ class TradingBot:
     def __init__(self, config: Config):
         self.config = config
         self.exchange = BinanceFuturesClient(config)
-        self.db = TradeRepository(
-            token=config.notion_token,
-            database_id=config.notion_database_id,
-        )
+        self.notifier = DiscordNotifier(config.discord_webhook_url)
         self.risk = RiskManager(config)
-        self.current_trade_id: str | None = None
+        self.current_trade_side: str | None = None  # "LONG" | "SHORT"
         self.stream = KlineStream(
             symbol=config.symbol,
             interval="1m",
@@ -30,6 +26,24 @@ class TradingBot:
         if df is not None:
             asyncio.create_task(self.process_candle(df))
 
+    async def _recover_position(self) -> None:
+        """재시작 시 바이낸스에서 현재 포지션을 조회하여 상태 복구."""
+        position = await self.exchange.get_position()
+        if position is not None:
+            amt = float(position["positionAmt"])
+            self.current_trade_side = "LONG" if amt > 0 else "SHORT"
+            entry = float(position["entryPrice"])
+            logger.info(
+                f"기존 포지션 복구: {self.current_trade_side} | "
+                f"진입가={entry:.4f} | 수량={abs(amt)}"
+            )
+            self.notifier.notify_info(
+                f"봇 재시작 - 기존 포지션 감지: {self.current_trade_side} "
+                f"진입가={entry:.4f} 수량={abs(amt)}"
+            )
+        else:
+            logger.info("기존 포지션 없음 - 신규 진입 대기")
+
     async def process_candle(self, df):
         if not self.risk.is_trading_allowed():
             logger.warning("리스크 한도 초과 - 거래 중단")
@@ -38,11 +52,13 @@ class TradingBot:
         ind = Indicators(df)
         df_with_indicators = ind.calculate_all()
         signal = ind.get_signal(df_with_indicators)
-        logger.info(f"신호: {signal}")
+        current_price = df_with_indicators["close"].iloc[-1]
+        logger.info(f"신호: {signal} | 현재가: {current_price:.4f} USDT")
 
         position = await self.exchange.get_position()
 
         if position is None and signal != "HOLD":
+            self.current_trade_side = None
             if not self.risk.can_open_new_position():
                 logger.info("최대 포지션 수 도달")
                 return
@@ -62,6 +78,14 @@ class TradingBot:
         )
         stop_loss, take_profit = Indicators(df).get_atr_stop(df, signal, price)
 
+        notional = quantity * price
+        if quantity <= 0 or notional < self.exchange.MIN_NOTIONAL:
+            logger.warning(
+                f"주문 건너뜀: 명목금액 {notional:.2f} USDT < 최소 {self.exchange.MIN_NOTIONAL} USDT "
+                f"(잔고={balance:.2f}, 수량={quantity})"
+            )
+            return
+
         side = "BUY" if signal == "LONG" else "SELL"
         await self.exchange.set_leverage(self.config.leverage)
         await self.exchange.place_order(side=side, quantity=quantity)
@@ -72,15 +96,18 @@ class TradingBot:
             "macd_hist": float(last_row.get("macd_hist", 0)),
             "atr":       float(last_row.get("atr", 0)),
         }
-        trade = self.db.save_trade(
+
+        self.current_trade_side = signal
+        self.notifier.notify_open(
             symbol=self.config.symbol,
             side=signal,
             entry_price=price,
             quantity=quantity,
             leverage=self.config.leverage,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
             signal_data=signal_snapshot,
         )
-        self.current_trade_id = trade["id"]
         logger.success(
             f"{signal} 진입: 가격={price}, 수량={quantity}, "
             f"SL={stop_loss:.4f}, TP={take_profit:.4f}"
@@ -105,6 +132,7 @@ class TradingBot:
     async def _close_position(self, position: dict):
         amt = abs(float(position["positionAmt"]))
         side = "SELL" if float(position["positionAmt"]) > 0 else "BUY"
+        pos_side = "LONG" if side == "SELL" else "SHORT"
         await self.exchange.cancel_all_orders()
         await self.exchange.place_order(side=side, quantity=amt, reduce_only=True)
 
@@ -112,14 +140,19 @@ class TradingBot:
         mark  = float(position["markPrice"])
         pnl   = (mark - entry) * amt if side == "SELL" else (entry - mark) * amt
 
-        if self.current_trade_id:
-            self.db.close_trade(self.current_trade_id, exit_price=mark, pnl=pnl)
+        self.notifier.notify_close(
+            symbol=self.config.symbol,
+            side=pos_side,
+            exit_price=mark,
+            pnl=pnl,
+        )
         self.risk.record_pnl(pnl)
-        self.current_trade_id = None
+        self.current_trade_side = None
         logger.success(f"포지션 청산: PnL={pnl:.4f} USDT")
 
     async def run(self):
         logger.info(f"봇 시작: {self.config.symbol}, 레버리지 {self.config.leverage}x")
+        await self._recover_position()
         await self.stream.start(
             api_key=self.config.api_key,
             api_secret=self.config.api_secret,

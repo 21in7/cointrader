@@ -16,8 +16,7 @@ class Config:
     stop_loss_pct: float = 0.015    # 1.5%
     take_profit_pct: float = 0.045  # 4.5% (3:1 RR)
     trailing_stop_pct: float = 0.01  # 1%
-    notion_token: str = ""
-    notion_database_id: str = ""
+    discord_webhook_url: str = ""
 
     def __post_init__(self):
         self.api_key = os.getenv("BINANCE_API_KEY", "")
@@ -25,5 +24,4 @@ class Config:
         self.symbol = os.getenv("SYMBOL", "XRPUSDT")
         self.leverage = int(os.getenv("LEVERAGE", "10"))
         self.risk_per_trade = float(os.getenv("RISK_PER_TRADE", "0.02"))
-        self.notion_token = os.getenv("NOTION_TOKEN", "")
-        self.notion_database_id = os.getenv("NOTION_DATABASE_ID", "")
+        self.discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
