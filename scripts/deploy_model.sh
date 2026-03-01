@@ -16,7 +16,6 @@ LOCAL_LOG="models/training_log.json"
 # ── 백엔드별 파일 목록 설정 ──────────────────────────────────────────────────
 # mlx: ONNX 파일만 전송 (Linux 서버는 onnxruntime으로 추론)
 # lgbm: pkl 파일 전송
-RELOAD_CMD="from src.ml_filter import MLFilter; f=MLFilter(); f.reload_model(); print('리로드 완료')"
 if [ "$BACKEND" = "mlx" ]; then
   LOCAL_FILES=("models/mlx_filter.weights.onnx")
 else
@@ -68,11 +67,12 @@ fi
 echo "=== 전송 완료 ==="
 echo ""
 
-# ── 핫리로드 ─────────────────────────────────────────────────────────────────
-echo "=== 핫리로드 시도 ==="
+# ── 핫리로드 안내 ────────────────────────────────────────────────────────────
+# 봇이 캔들마다 모델 파일 mtime을 감지해 자동 리로드한다.
+# 컨테이너가 실행 중이면 다음 캔들(최대 1분) 안에 자동 적용된다.
+echo "=== 모델 전송 완료 — 봇이 다음 캔들에서 자동 리로드합니다 ==="
 if ssh "${LXC_HOST}" "docker inspect -f '{{.State.Running}}' cointrader 2>/dev/null | grep -q true"; then
-  ssh "${LXC_HOST}" "docker exec cointrader python -c \"${RELOAD_CMD}\""
-  echo "=== 핫리로드 완료 ==="
+  echo "  컨테이너 실행 중: 다음 캔들 마감 시 자동 핫리로드 예정"
 else
-  echo "  cointrader 컨테이너가 실행 중이 아닙니다. 건너뜁니다."
+  echo "  cointrader 컨테이너가 실행 중이 아닙니다."
 fi

@@ -50,6 +50,8 @@ class TradingBot:
             logger.info("기존 포지션 없음 - 신규 진입 대기")
 
     async def process_candle(self, df, btc_df=None, eth_df=None):
+        self.ml_filter.check_and_reload()
+
         if not self.risk.is_trading_allowed():
             logger.warning("리스크 한도 초과 - 거래 중단")
             return

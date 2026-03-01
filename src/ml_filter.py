@@ -10,12 +10,22 @@ ONNX_MODEL_PATH = Path("models/mlx_filter.weights.onnx")
 LGBM_MODEL_PATH = Path("models/lgbm_filter.pkl")
 
 
+def _mtime(path: Path) -> float:
+    """파일이 없으면 0.0 반환."""
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
+
 class MLFilter:
     """
     ML 필터. ONNX(MLX 신경망) 우선 로드, 없으면 LightGBM으로 폴백한다.
     둘 다 없으면 항상 진입을 허용한다.
 
     우선순위: ONNX > LightGBM > 폴백(항상 허용)
+
+    check_and_reload()를 주기적으로 호출하면 모델 파일 변경 시 자동 리로드된다.
     """
 
     def __init__(
@@ -29,6 +39,8 @@ class MLFilter:
         self._threshold = threshold
         self._onnx_session = None
         self._lgbm_model = None
+        self._loaded_onnx_mtime: float = 0.0
+        self._loaded_lgbm_mtime: float = 0.0
         self._try_load()
 
     def _try_load(self):
@@ -41,7 +53,12 @@ class MLFilter:
                     providers=["CPUExecutionProvider"],
                 )
                 self._lgbm_model = None
-                logger.info(f"ML 필터 ONNX 모델 로드 완료: {self._onnx_path}")
+                self._loaded_onnx_mtime = _mtime(self._onnx_path)
+                self._loaded_lgbm_mtime = 0.0
+                logger.info(
+                    f"ML 필터 로드: ONNX ({self._onnx_path}) "
+                    f"| 임계값={self._threshold}"
+                )
                 return
             except Exception as e:
                 logger.warning(f"ONNX 모델 로드 실패: {e}")
@@ -51,13 +68,50 @@ class MLFilter:
         if self._lgbm_path.exists():
             try:
                 self._lgbm_model = joblib.load(self._lgbm_path)
-                logger.info(f"ML 필터 LightGBM 모델 로드 완료: {self._lgbm_path}")
+                self._loaded_lgbm_mtime = _mtime(self._lgbm_path)
+                self._loaded_onnx_mtime = 0.0
+                logger.info(
+                    f"ML 필터 로드: LightGBM ({self._lgbm_path}) "
+                    f"| 임계값={self._threshold}"
+                )
             except Exception as e:
                 logger.warning(f"LightGBM 모델 로드 실패: {e}")
                 self._lgbm_model = None
+        else:
+            logger.warning("ML 필터: 모델 파일 없음 → 모든 신호 허용 (폴백)")
 
     def is_model_loaded(self) -> bool:
         return self._onnx_session is not None or self._lgbm_model is not None
+
+    @property
+    def active_backend(self) -> str:
+        if self._onnx_session is not None:
+            return "ONNX"
+        if self._lgbm_model is not None:
+            return "LightGBM"
+        return "폴백(없음)"
+
+    def check_and_reload(self) -> bool:
+        """
+        모델 파일의 mtime을 확인해 변경됐으면 리로드한다.
+        실제로 리로드가 일어났으면 True 반환.
+        """
+        onnx_changed = _mtime(self._onnx_path) != self._loaded_onnx_mtime
+        lgbm_changed = _mtime(self._lgbm_path) != self._loaded_lgbm_mtime
+
+        if onnx_changed or lgbm_changed:
+            changed_files = []
+            if onnx_changed:
+                changed_files.append(str(self._onnx_path))
+            if lgbm_changed:
+                changed_files.append(str(self._lgbm_path))
+            logger.info(f"ML 필터: 모델 파일 변경 감지 → 리로드 ({', '.join(changed_files)})")
+            self._onnx_session = None
+            self._lgbm_model = None
+            self._try_load()
+            logger.info(f"ML 필터 핫리로드 완료: 백엔드={self.active_backend}")
+            return True
+        return False
 
     def should_enter(self, features: pd.Series) -> bool:
         """
@@ -74,15 +128,21 @@ class MLFilter:
             else:
                 X = features.to_frame().T
                 proba = float(self._lgbm_model.predict_proba(X)[0][1])
-            logger.debug(f"ML 필터 확률: {proba:.3f} (임계값: {self._threshold})")
+            logger.debug(
+                f"ML 필터 [{self.active_backend}] 확률: {proba:.3f} "
+                f"(임계값: {self._threshold})"
+            )
             return bool(proba >= self._threshold)
         except Exception as e:
             logger.warning(f"ML 필터 예측 오류 (폴백 허용): {e}")
             return True
 
     def reload_model(self):
-        """재학습 후 모델을 핫 리로드한다."""
+        """외부에서 강제 리로드할 때 사용 (하위 호환)."""
+        prev_backend = self.active_backend
         self._onnx_session = None
         self._lgbm_model = None
         self._try_load()
-        logger.info("ML 필터 모델 리로드 완료")
+        logger.info(
+            f"ML 필터 강제 리로드 완료: {prev_backend} → {self.active_backend}"
+        )
