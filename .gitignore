@@ -9,3 +9,4 @@ venv/
 models/*.pkl
 data/*.parquet
 .worktrees/
+.DS_Store
