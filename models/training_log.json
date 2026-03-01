@@ -162,5 +162,32 @@
     "features": 21,
     "time_weight_decay": 2.0,
     "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T22:18:59.852831",
+    "backend": "lgbm",
+    "auc": 0.5504,
+    "samples": 533,
+    "features": 21,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T22:19:29.532472",
+    "backend": "lgbm",
+    "auc": 0.5504,
+    "samples": 533,
+    "features": 21,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T22:19:30.938005",
+    "backend": "mlx",
+    "auc": 0.5714,
+    "samples": 533,
+    "train_sec": 0.1,
+    "time_weight_decay": 2.0,
+    "model_path": "models/mlx_filter.weights"
   }
 ]

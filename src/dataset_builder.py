@@ -115,14 +115,17 @@ def _calc_signals(d: pd.DataFrame) -> np.ndarray:
     return signal_arr
 
 
-def _rolling_zscore(arr: np.ndarray, window: int = 200) -> np.ndarray:
-    """rolling window z-score 정규화. window 미만 구간은 0으로 채운다.
-    절대값 피처(수익률, ATR 등)를 레짐 변화에 무관하게 만든다."""
+def _rolling_zscore(arr: np.ndarray, window: int = 288) -> np.ndarray:
+    """rolling window z-score 정규화. 15분봉 기준 3일(288캔들) 윈도우.
+    절대값 피처(ATR, 수익률 등)를 레짐 변화에 무관하게 만든다.
+    min_periods=1로 초반 데이터도 활용하며, ddof=0(모표준편차)으로 계산한다."""
     s = pd.Series(arr.astype(np.float64))
-    mean = s.rolling(window, min_periods=window).mean()
-    std  = s.rolling(window, min_periods=window).std()
-    z = (s - mean) / std.where(std > 0, other=np.nan)
-    return z.fillna(0).values.astype(np.float32)
+    r = s.rolling(window=window, min_periods=1)
+    mean = r.mean()
+    std  = r.std(ddof=0)
+    std  = std.where(std >= 1e-8, other=1e-8)
+    z = (s - mean) / std
+    return z.values.astype(np.float32)
 
 
 def _calc_features_vectorized(
@@ -254,6 +257,14 @@ def _calc_features_vectorized(
             "xrp_eth_rs": _rolling_zscore(xrp_eth_rs_raw),
         }, index=d.index)
         result = pd.concat([result, extra], axis=1)
+
+    # OI 변화율 / 펀딩비 피처 (parquet에 컬럼이 있으면 z-score, 없으면 0)
+    # OI는 최근 30일치만 제공되므로 이전 구간은 0으로 채워진 채로 들어옴
+    oi_raw = d["oi_change"].values if "oi_change" in d.columns else np.zeros(len(d))
+    fr_raw = d["funding_rate"].values if "funding_rate" in d.columns else np.zeros(len(d))
+
+    result["oi_change"]    = _rolling_zscore(oi_raw.astype(np.float64))
+    result["funding_rate"] = _rolling_zscore(fr_raw.astype(np.float64))
 
     return result
 

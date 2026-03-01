@@ -8,6 +8,9 @@ FEATURE_COLS = [
     "btc_ret_1", "btc_ret_3", "btc_ret_5",
     "eth_ret_1", "eth_ret_3", "eth_ret_5",
     "xrp_btc_rs", "xrp_eth_rs",
+    # 시장 미시구조: OI 변화율(z-score), 펀딩비(z-score)
+    # parquet에 oi_change/funding_rate 컬럼이 없으면 dataset_builder에서 0으로 채움
+    "oi_change", "funding_rate",
 ]
 
 

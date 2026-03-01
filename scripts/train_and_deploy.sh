@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # 맥미니에서 전체 학습 파이프라인을 실행하고 LXC로 배포한다.
-# 사용법: bash scripts/train_and_deploy.sh [mlx|lgbm]
+# 사용법: bash scripts/train_and_deploy.sh [mlx|lgbm] [wf-splits]
 #
 # 예시:
-#   bash scripts/train_and_deploy.sh        # LightGBM (기본값)
-#   bash scripts/train_and_deploy.sh mlx    # MLX GPU 학습
+#   bash scripts/train_and_deploy.sh             # LightGBM + Walk-Forward 5폴드 (기본값)
+#   bash scripts/train_and_deploy.sh mlx         # MLX GPU 학습 + Walk-Forward 5폴드
+#   bash scripts/train_and_deploy.sh lgbm 3      # LightGBM + Walk-Forward 3폴드
+#   bash scripts/train_and_deploy.sh lgbm 0      # Walk-Forward 건너뜀 (단일 학습만)
 
 set -euo pipefail
 
@@ -20,10 +22,11 @@ else
 fi
 
 BACKEND="${1:-lgbm}"
+WF_SPLITS="${2:-5}"   # 두 번째 인자: Walk-Forward 폴드 수 (0이면 건너뜀)
 
 cd "$PROJECT_ROOT"
 
-echo "=== [1/3] 데이터 수집 (XRP + BTC + ETH 3심볼, 1년치) ==="
+echo "=== [1/3] 데이터 수집 (XRP + BTC + ETH 3심볼, 1년치 + OI/펀딩비) ==="
 python scripts/fetch_history.py \
     --symbols XRPUSDT BTCUSDT ETHUSDT \
     --interval 15m \
@@ -31,7 +34,7 @@ python scripts/fetch_history.py \
     --output data/combined_15m.parquet
 
 echo ""
-echo "=== [2/3] 모델 학습 (21개 피처: XRP 13 + BTC/ETH 상관관계 8) ==="
+echo "=== [2/3] 모델 학습 (23개 피처: XRP 13 + BTC/ETH 8 + OI/펀딩비 2) ==="
 DECAY="${TIME_WEIGHT_DECAY:-2.0}"
 if [ "$BACKEND" = "mlx" ]; then
     echo "  백엔드: MLX (Apple Silicon GPU), decay=${DECAY}"
@@ -39,6 +42,17 @@ if [ "$BACKEND" = "mlx" ]; then
 else
     echo "  백엔드: LightGBM (CPU), decay=${DECAY}"
     python scripts/train_model.py --data data/combined_15m.parquet --decay "$DECAY"
+fi
+
+# Walk-Forward 검증 (WF_SPLITS > 0 인 경우, lgbm 백엔드만 지원)
+if [ "$WF_SPLITS" -gt 0 ] 2>/dev/null && [ "$BACKEND" != "mlx" ]; then
+    echo ""
+    echo "=== [2.5/3] Walk-Forward 검증 (${WF_SPLITS}폴드) ==="
+    python scripts/train_model.py \
+        --data data/combined_15m.parquet \
+        --decay "$DECAY" \
+        --wf \
+        --wf-splits "$WF_SPLITS"
 fi
 
 echo ""
