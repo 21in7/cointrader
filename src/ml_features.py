@@ -5,12 +5,36 @@ FEATURE_COLS = [
     "rsi", "macd_hist", "bb_pct", "ema_align",
     "stoch_k", "stoch_d", "atr_pct", "vol_ratio",
     "ret_1", "ret_3", "ret_5", "signal_strength", "side",
+    "btc_ret_1", "btc_ret_3", "btc_ret_5",
+    "eth_ret_1", "eth_ret_3", "eth_ret_5",
+    "xrp_btc_rs", "xrp_eth_rs",
 ]
 
 
-def build_features(df: pd.DataFrame, signal: str) -> pd.Series:
+def _calc_ret(closes: pd.Series, n: int) -> float:
+    """n캔들 전 대비 수익률. 데이터 부족 시 0.0."""
+    if len(closes) < n + 1:
+        return 0.0
+    prev = closes.iloc[-(n + 1)]
+    return (closes.iloc[-1] - prev) / prev if prev != 0 else 0.0
+
+
+def _calc_rs(xrp_ret: float, other_ret: float) -> float:
+    """상대강도 = xrp_ret / other_ret. 분모 0이면 0.0."""
+    if other_ret == 0.0:
+        return 0.0
+    return xrp_ret / other_ret
+
+
+def build_features(
+    df: pd.DataFrame,
+    signal: str,
+    btc_df: pd.DataFrame | None = None,
+    eth_df: pd.DataFrame | None = None,
+) -> pd.Series:
     """
     기술 지표가 계산된 DataFrame의 마지막 행에서 ML 피처를 추출한다.
+    btc_df, eth_df가 제공되면 21개 피처를, 없으면 13개 피처를 반환한다.
     signal: "LONG" | "SHORT"
     """
     last = df.iloc[-1]
@@ -38,9 +62,9 @@ def build_features(df: pd.DataFrame, signal: str) -> pd.Series:
     vol_ratio = last["volume"] / vol_ma20 if vol_ma20 > 0 else 1.0
 
     closes = df["close"]
-    ret_1 = (close - closes.iloc[-2]) / closes.iloc[-2] if len(closes) >= 2 else 0.0
-    ret_3 = (close - closes.iloc[-4]) / closes.iloc[-4] if len(closes) >= 4 else 0.0
-    ret_5 = (close - closes.iloc[-6]) / closes.iloc[-6] if len(closes) >= 6 else 0.0
+    ret_1 = _calc_ret(closes, 1)
+    ret_3 = _calc_ret(closes, 3)
+    ret_5 = _calc_ret(closes, 5)
 
     prev = df.iloc[-2] if len(df) >= 2 else last
     strength = 0
@@ -65,7 +89,7 @@ def build_features(df: pd.DataFrame, signal: str) -> pd.Series:
         if ema_align == -1: strength += 1
         if stoch_k > 80 and stoch_k < stoch_d: strength += 1
 
-    return pd.Series({
+    base = {
         "rsi":            float(rsi),
         "macd_hist":      float(last.get("macd_hist", 0)),
         "bb_pct":         float(bb_pct),
@@ -79,4 +103,25 @@ def build_features(df: pd.DataFrame, signal: str) -> pd.Series:
         "ret_5":          float(ret_5),
         "signal_strength": float(strength),
         "side":           1.0 if signal == "LONG" else 0.0,
-    })
+    }
+
+    if btc_df is not None and eth_df is not None:
+        btc_ret_1 = _calc_ret(btc_df["close"], 1)
+        btc_ret_3 = _calc_ret(btc_df["close"], 3)
+        btc_ret_5 = _calc_ret(btc_df["close"], 5)
+        eth_ret_1 = _calc_ret(eth_df["close"], 1)
+        eth_ret_3 = _calc_ret(eth_df["close"], 3)
+        eth_ret_5 = _calc_ret(eth_df["close"], 5)
+
+        base.update({
+            "btc_ret_1":  float(btc_ret_1),
+            "btc_ret_3":  float(btc_ret_3),
+            "btc_ret_5":  float(btc_ret_5),
+            "eth_ret_1":  float(eth_ret_1),
+            "eth_ret_3":  float(eth_ret_3),
+            "eth_ret_5":  float(eth_ret_5),
+            "xrp_btc_rs": float(_calc_rs(ret_1, btc_ret_1)),
+            "xrp_eth_rs": float(_calc_rs(ret_1, eth_ret_1)),
+        })
+
+    return pd.Series(base)

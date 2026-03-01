@@ -3,7 +3,7 @@ from loguru import logger
 from src.config import Config
 from src.exchange import BinanceFuturesClient
 from src.indicators import Indicators
-from src.data_stream import KlineStream
+from src.data_stream import MultiSymbolStream
 from src.notifier import DiscordNotifier
 from src.risk_manager import RiskManager
 from src.ml_filter import MLFilter
@@ -18,16 +18,18 @@ class TradingBot:
         self.risk = RiskManager(config)
         self.ml_filter = MLFilter()
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
-        self.stream = KlineStream(
-            symbol=config.symbol,
+        self.stream = MultiSymbolStream(
+            symbols=[config.symbol, "BTCUSDT", "ETHUSDT"],
             interval="1m",
             on_candle=self._on_candle_closed,
         )
 
     def _on_candle_closed(self, candle: dict):
-        df = self.stream.get_dataframe()
-        if df is not None:
-            asyncio.create_task(self.process_candle(df))
+        xrp_df = self.stream.get_dataframe(self.config.symbol)
+        btc_df = self.stream.get_dataframe("BTCUSDT")
+        eth_df = self.stream.get_dataframe("ETHUSDT")
+        if xrp_df is not None:
+            asyncio.create_task(self.process_candle(xrp_df, btc_df=btc_df, eth_df=eth_df))
 
     async def _recover_position(self) -> None:
         """재시작 시 바이낸스에서 현재 포지션을 조회하여 상태 복구."""
@@ -47,7 +49,7 @@ class TradingBot:
         else:
             logger.info("기존 포지션 없음 - 신규 진입 대기")
 
-    async def process_candle(self, df):
+    async def process_candle(self, df, btc_df=None, eth_df=None):
         if not self.risk.is_trading_allowed():
             logger.warning("리스크 한도 초과 - 거래 중단")
             return
@@ -57,7 +59,7 @@ class TradingBot:
         signal = ind.get_signal(df_with_indicators)
 
         if signal != "HOLD" and self.ml_filter.is_model_loaded():
-            features = build_features(df_with_indicators, signal)
+            features = build_features(df_with_indicators, signal, btc_df=btc_df, eth_df=eth_df)
             if not self.ml_filter.should_enter(features):
                 logger.info(f"ML 필터 차단: {signal} 신호 무시")
                 signal = "HOLD"

@@ -2,6 +2,43 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 from src.data_stream import KlineStream
+from src.data_stream import MultiSymbolStream
+
+
+def test_multi_symbol_stream_has_three_buffers():
+    stream = MultiSymbolStream(
+        symbols=["XRPUSDT", "BTCUSDT", "ETHUSDT"],
+        interval="1m",
+    )
+    assert "xrpusdt" in stream.buffers
+    assert "btcusdt" in stream.buffers
+    assert "ethusdt" in stream.buffers
+
+def test_multi_symbol_stream_get_dataframe_returns_none_when_empty():
+    stream = MultiSymbolStream(
+        symbols=["XRPUSDT", "BTCUSDT", "ETHUSDT"],
+        interval="1m",
+    )
+    assert stream.get_dataframe("XRPUSDT") is None
+
+def test_multi_symbol_stream_get_dataframe_returns_df_when_full():
+    import pandas as pd
+    stream = MultiSymbolStream(
+        symbols=["XRPUSDT", "BTCUSDT", "ETHUSDT"],
+        interval="1m",
+        buffer_size=200,
+    )
+    candle = {
+        "timestamp": 1000, "open": 1.0, "high": 1.1,
+        "low": 0.9, "close": 1.05, "volume": 100.0, "is_closed": True,
+    }
+    for i in range(50):
+        c = candle.copy()
+        c["timestamp"] = 1000 + i
+        stream.buffers["xrpusdt"].append(c)
+    df = stream.get_dataframe("XRPUSDT")
+    assert df is not None
+    assert len(df) == 50
 
 
 @pytest.mark.asyncio

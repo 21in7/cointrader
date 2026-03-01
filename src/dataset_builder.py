@@ -115,7 +115,12 @@ def _calc_signals(d: pd.DataFrame) -> np.ndarray:
     return signal_arr
 
 
-def _calc_features_vectorized(d: pd.DataFrame, signal_arr: np.ndarray) -> pd.DataFrame:
+def _calc_features_vectorized(
+    d: pd.DataFrame,
+    signal_arr: np.ndarray,
+    btc_df: pd.DataFrame | None = None,
+    eth_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """
     신호 발생 인덱스에서 ml_features.py build_features() 로직을
     pandas 벡터 연산으로 재현한다.
@@ -178,7 +183,7 @@ def _calc_features_vectorized(d: pd.DataFrame, signal_arr: np.ndarray) -> pd.Dat
 
     side = np.where(signal_arr == "LONG", 1.0, 0.0).astype(np.float32)
 
-    return pd.DataFrame({
+    result = pd.DataFrame({
         "rsi":             rsi.values.astype(np.float32),
         "macd_hist":       macd_hist.values.astype(np.float32),
         "bb_pct":          bb_pct.astype(np.float32),
@@ -194,6 +199,41 @@ def _calc_features_vectorized(d: pd.DataFrame, signal_arr: np.ndarray) -> pd.Dat
         "side":            side,
         "_signal":         signal_arr,   # 레이블 계산용 임시 컬럼
     }, index=d.index)
+
+    # BTC/ETH 피처 계산 (제공된 경우)
+    if btc_df is not None and eth_df is not None:
+        btc_ret_1 = btc_df["close"].pct_change(1).fillna(0).values
+        btc_ret_3 = btc_df["close"].pct_change(3).fillna(0).values
+        btc_ret_5 = btc_df["close"].pct_change(5).fillna(0).values
+        eth_ret_1 = eth_df["close"].pct_change(1).fillna(0).values
+        eth_ret_3 = eth_df["close"].pct_change(3).fillna(0).values
+        eth_ret_5 = eth_df["close"].pct_change(5).fillna(0).values
+
+        def _align(arr: np.ndarray, target_len: int) -> np.ndarray:
+            if len(arr) >= target_len:
+                return arr[-target_len:]
+            return np.concatenate([np.zeros(target_len - len(arr)), arr])
+
+        n = len(d)
+        btc_r1 = _align(btc_ret_1, n).astype(np.float32)
+        btc_r3 = _align(btc_ret_3, n).astype(np.float32)
+        btc_r5 = _align(btc_ret_5, n).astype(np.float32)
+        eth_r1 = _align(eth_ret_1, n).astype(np.float32)
+        eth_r3 = _align(eth_ret_3, n).astype(np.float32)
+        eth_r5 = _align(eth_ret_5, n).astype(np.float32)
+
+        xrp_r1 = ret_1.astype(np.float32)
+        xrp_btc_rs = np.where(btc_r1 != 0, xrp_r1 / btc_r1, 0.0).astype(np.float32)
+        xrp_eth_rs = np.where(eth_r1 != 0, xrp_r1 / eth_r1, 0.0).astype(np.float32)
+
+        extra = pd.DataFrame({
+            "btc_ret_1": btc_r1, "btc_ret_3": btc_r3, "btc_ret_5": btc_r5,
+            "eth_ret_1": eth_r1, "eth_ret_3": eth_r3, "eth_ret_5": eth_r5,
+            "xrp_btc_rs": xrp_btc_rs, "xrp_eth_rs": xrp_eth_rs,
+        }, index=d.index)
+        result = pd.concat([result, extra], axis=1)
+
+    return result
 
 
 def _calc_labels_vectorized(
@@ -261,22 +301,28 @@ def _calc_labels_vectorized(
     return np.array(labels, dtype=np.int8), np.array(valid_mask, dtype=bool)
 
 
-def generate_dataset_vectorized(df: pd.DataFrame) -> pd.DataFrame:
+def generate_dataset_vectorized(
+    df: pd.DataFrame,
+    btc_df: pd.DataFrame | None = None,
+    eth_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     """
     전체 시계열을 1회 계산해 학습 데이터셋을 생성한다.
     기존 generate_dataset()의 drop-in 대체제.
+    btc_df, eth_df가 제공되면 21개 피처로 확장한다.
     """
     print("  [1/3] 전체 시계열 지표 계산 (1회)...")
     d = _calc_indicators(df)
 
     print("  [2/3] 신호 마스킹 및 피처 추출...")
     signal_arr = _calc_signals(d)
-    feat_all   = _calc_features_vectorized(d, signal_arr)
+    feat_all   = _calc_features_vectorized(d, signal_arr, btc_df=btc_df, eth_df=eth_df)
 
     # 신호 발생 + NaN 없음 + 미래 데이터 충분한 인덱스만
+    available_cols_for_nan_check = [c for c in FEATURE_COLS if c in feat_all.columns]
     valid_rows = (
         (signal_arr != "HOLD") &
-        (~feat_all[FEATURE_COLS].isna().any(axis=1).values) &
+        (~feat_all[available_cols_for_nan_check].isna().any(axis=1).values) &
         (np.arange(len(d)) >= WARMUP) &
         (np.arange(len(d)) < len(d) - LOOKAHEAD)
     )
@@ -287,7 +333,9 @@ def generate_dataset_vectorized(df: pd.DataFrame) -> pd.DataFrame:
     labels, valid_mask = _calc_labels_vectorized(d, feat_all, sig_idx)
 
     final_idx = sig_idx[valid_mask]
-    feat_final = feat_all.iloc[final_idx][FEATURE_COLS].copy()
+    # btc_df/eth_df 제공 여부에 따라 실제 존재하는 피처 컬럼만 선택
+    available_feature_cols = [c for c in FEATURE_COLS if c in feat_all.columns]
+    feat_final = feat_all.iloc[final_idx][available_feature_cols].copy()
     feat_final["label"] = labels
 
     return feat_final.reset_index(drop=True)

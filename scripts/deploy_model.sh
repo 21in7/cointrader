@@ -54,6 +54,13 @@ fi
 
 echo "=== 전송 완료 ==="
 echo ""
-echo "봇이 실행 중이라면 아래 명령으로 모델을 즉시 리로드할 수 있습니다:"
-echo "  docker exec cointrader python -c \\"
-echo "    \"from src.ml_filter import MLFilter; f=MLFilter(); f.reload_model(); print('리로드 완료')\""
+
+# 봇 컨테이너가 실행 중이면 모델 핫리로드, 아니면 건너뜀
+echo "=== 핫리로드 시도 ==="
+if ssh "${LXC_HOST}" "docker inspect -f '{{.State.Running}}' cointrader 2>/dev/null | grep -q true"; then
+  ssh "${LXC_HOST}" "docker exec cointrader python -c \
+    \"from src.ml_filter import MLFilter; f=MLFilter(); f.reload_model(); print('리로드 완료')\""
+  echo "=== 핫리로드 완료 ==="
+else
+  echo "  cointrader 컨테이너가 실행 중이 아닙니다. 건너뜁니다."
+fi

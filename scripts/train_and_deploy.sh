@@ -16,19 +16,24 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
-echo "=== [1/3] 데이터 수집 ==="
-python scripts/fetch_history.py --symbol XRPUSDT --interval 1m --days 90 --output data/xrpusdt_1m.parquet
+echo "=== [1/3] 데이터 수집 (XRP + BTC + ETH 3심볼) ==="
+python scripts/fetch_history.py \
+    --symbols XRPUSDT BTCUSDT ETHUSDT \
+    --interval 1m \
+    --days 90 \
+    --output data/xrpusdt_1m.parquet
+# 결과: data/combined_1m.parquet (타임스탬프 기준 병합)
 
 echo ""
-echo "=== [2/3] 모델 학습 ==="
+echo "=== [2/3] 모델 학습 (21개 피처: XRP 13 + BTC/ETH 상관관계 8) ==="
 # TRAIN_BACKEND=mlx 로 설정하면 Apple Silicon GPU(Metal)를 사용한다 (기본: lgbm)
 BACKEND="${TRAIN_BACKEND:-lgbm}"
 if [ "$BACKEND" = "mlx" ]; then
     echo "  백엔드: MLX (Apple Silicon GPU)"
-    python scripts/train_mlx_model.py --data data/xrpusdt_1m.parquet
+    python scripts/train_mlx_model.py --data data/combined_1m.parquet
 else
     echo "  백엔드: LightGBM (CPU)"
-    python scripts/train_model.py --data data/xrpusdt_1m.parquet
+    python scripts/train_model.py --data data/combined_1m.parquet
 fi
 
 echo ""

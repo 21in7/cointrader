@@ -35,6 +35,19 @@ def sample_df():
     })
 
 
+def test_bot_uses_multi_symbol_stream(config):
+    from src.data_stream import MultiSymbolStream
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+    assert isinstance(bot.stream, MultiSymbolStream)
+
+def test_bot_stream_has_btc_eth_buffers(config):
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+    assert "btcusdt" in bot.stream.buffers
+    assert "ethusdt" in bot.stream.buffers
+
+
 @pytest.mark.asyncio
 async def test_bot_processes_signal(config, sample_df):
     with patch("src.bot.BinanceFuturesClient") as MockExchange:

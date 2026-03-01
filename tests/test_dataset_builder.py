@@ -29,12 +29,16 @@ def test_returns_dataframe(sample_df):
 
 
 def test_has_required_columns(sample_df):
-    """FEATURE_COLS + label 컬럼이 모두 있어야 한다."""
-    from src.ml_features import FEATURE_COLS
+    """기본 13개 피처 + label 컬럼이 모두 있어야 한다."""
+    BASE_FEATURE_COLS = [
+        "rsi", "macd_hist", "bb_pct", "ema_align",
+        "stoch_k", "stoch_d", "atr_pct", "vol_ratio",
+        "ret_1", "ret_3", "ret_5", "signal_strength", "side",
+    ]
     result = generate_dataset_vectorized(sample_df)
     if len(result) > 0:
         assert "label" in result.columns
-        for col in FEATURE_COLS:
+        for col in BASE_FEATURE_COLS:
             assert col in result.columns, f"컬럼 없음: {col}"
 
 
@@ -43,6 +47,30 @@ def test_label_is_binary(sample_df):
     result = generate_dataset_vectorized(sample_df)
     if len(result) > 0:
         assert set(result["label"].unique()).issubset({0, 1})
+
+
+def test_generate_dataset_vectorized_with_btc_eth_has_21_feature_cols():
+    """BTC/ETH DataFrame을 전달하면 결과 컬럼이 21개 피처 + label이어야 한다."""
+    import pandas as pd
+    import numpy as np
+    from src.dataset_builder import generate_dataset_vectorized
+    from src.ml_features import FEATURE_COLS
+
+    np.random.seed(42)
+    n = 500
+    closes = np.cumprod(1 + np.random.randn(n) * 0.001) * 1.0
+    xrp_df = pd.DataFrame({
+        "open": closes * 0.999, "high": closes * 1.005,
+        "low": closes * 0.995, "close": closes,
+        "volume": np.random.rand(n) * 1000 + 500,
+    })
+    btc_df = xrp_df.copy() * 50000
+    eth_df = xrp_df.copy() * 3000
+
+    result = generate_dataset_vectorized(xrp_df, btc_df=btc_df, eth_df=eth_df)
+    if not result.empty:
+        assert set(FEATURE_COLS).issubset(set(result.columns))
+        assert len(result.columns) == len(FEATURE_COLS) + 1  # +1 for label
 
 
 def test_matches_original_generate_dataset(sample_df):

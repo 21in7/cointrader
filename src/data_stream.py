@@ -6,6 +6,7 @@ from binance import AsyncClient, BinanceSocketManager
 from loguru import logger
 
 
+
 class KlineStream:
     def __init__(
         self,
@@ -79,6 +80,108 @@ class KlineStream:
             async with bm.kline_futures_socket(
                 symbol=self.symbol.upper(), interval=self.interval
             ) as stream:
+                while True:
+                    msg = await stream.recv()
+                    self.handle_message(msg)
+        finally:
+            await client.close_connection()
+
+
+class MultiSymbolStream:
+    """
+    바이낸스 Combined WebSocket으로 여러 심볼의 캔들을 단일 연결로 수신한다.
+    XRP 캔들이 닫힐 때 on_candle 콜백을 호출한다.
+    """
+
+    def __init__(
+        self,
+        symbols: list[str],
+        interval: str = "1m",
+        buffer_size: int = 200,
+        on_candle: Callable = None,
+    ):
+        self.symbols = [s.lower() for s in symbols]
+        self.interval = interval
+        self.on_candle = on_candle
+        self.buffers: dict[str, deque] = {
+            s: deque(maxlen=buffer_size) for s in self.symbols
+        }
+        # 첫 번째 심볼이 주 심볼 (XRP)
+        self.primary_symbol = self.symbols[0]
+
+    def parse_kline(self, msg: dict) -> dict:
+        k = msg["k"]
+        return {
+            "timestamp": k["t"],
+            "open":      float(k["o"]),
+            "high":      float(k["h"]),
+            "low":       float(k["l"]),
+            "close":     float(k["c"]),
+            "volume":    float(k["v"]),
+            "is_closed": k["x"],
+        }
+
+    def handle_message(self, msg: dict):
+        # Combined stream 메시지는 {"stream": "...", "data": {...}} 형태
+        if "stream" in msg:
+            data = msg["data"]
+        else:
+            data = msg
+
+        if data.get("e") != "kline":
+            return
+
+        symbol = data["s"].lower()
+        candle = self.parse_kline(data)
+
+        if candle["is_closed"] and symbol in self.buffers:
+            self.buffers[symbol].append(candle)
+            if symbol == self.primary_symbol and self.on_candle:
+                self.on_candle(candle)
+
+    def get_dataframe(self, symbol: str) -> pd.DataFrame | None:
+        key = symbol.lower()
+        buf = self.buffers.get(key)
+        if buf is None or len(buf) < 50:
+            return None
+        df = pd.DataFrame(list(buf))
+        df.set_index("timestamp", inplace=True)
+        return df
+
+    async def _preload_history(self, client: AsyncClient, limit: int = 200):
+        """REST API로 모든 심볼의 과거 캔들을 버퍼에 미리 채운다."""
+        for symbol in self.symbols:
+            logger.info(f"{symbol.upper()} 과거 캔들 {limit}개 로드 중...")
+            klines = await client.futures_klines(
+                symbol=symbol.upper(),
+                interval=self.interval,
+                limit=limit,
+            )
+            for k in klines[:-1]:
+                self.buffers[symbol].append({
+                    "timestamp": k[0],
+                    "open":      float(k[1]),
+                    "high":      float(k[2]),
+                    "low":       float(k[3]),
+                    "close":     float(k[4]),
+                    "volume":    float(k[5]),
+                    "is_closed": True,
+                })
+            logger.info(f"{symbol.upper()} {len(self.buffers[symbol])}개 로드 완료")
+
+    async def start(self, api_key: str, api_secret: str):
+        client = await AsyncClient.create(
+            api_key=api_key,
+            api_secret=api_secret,
+        )
+        await self._preload_history(client)
+        bm = BinanceSocketManager(client)
+        streams = [
+            f"{s}@kline_{self.interval}" for s in self.symbols
+        ]
+        logger.info(f"Combined WebSocket 시작: {streams}")
+        try:
+            async with bm.futures_multiplex_socket(streams) as stream:
                 while True:
                     msg = await stream.recv()
                     self.handle_message(msg)

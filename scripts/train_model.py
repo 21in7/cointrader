@@ -148,11 +148,28 @@ def generate_dataset(df: pd.DataFrame, n_jobs: int | None = None) -> pd.DataFram
 
 def train(data_path: str):
     print(f"데이터 로드: {data_path}")
-    df = pd.read_parquet(data_path)
-    print(f"캔들 수: {len(df)}")
+    df_raw = pd.read_parquet(data_path)
+    print(f"캔들 수: {len(df_raw)}, 컬럼: {list(df_raw.columns)}")
+
+    # 병합 데이터셋 여부 판별
+    btc_df = None
+    eth_df = None
+    base_cols = ["open", "high", "low", "close", "volume"]
+
+    if "close_btc" in df_raw.columns:
+        btc_df = df_raw[[c + "_btc" for c in base_cols]].copy()
+        btc_df.columns = base_cols
+        print("BTC 피처 활성화")
+
+    if "close_eth" in df_raw.columns:
+        eth_df = df_raw[[c + "_eth" for c in base_cols]].copy()
+        eth_df.columns = base_cols
+        print("ETH 피처 활성화")
+
+    df = df_raw[base_cols].copy()
 
     print("데이터셋 생성 중...")
-    dataset = generate_dataset_vectorized(df)
+    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df)
 
     if dataset.empty or "label" not in dataset.columns:
         raise ValueError(f"데이터셋 생성 실패: 샘플 0개. 위 오류 메시지를 확인하세요.")
@@ -162,7 +179,9 @@ def train(data_path: str):
     if len(dataset) < 200:
         raise ValueError(f"학습 샘플 부족: {len(dataset)}개 (최소 200 필요)")
 
-    X = dataset[FEATURE_COLS]
+    actual_feature_cols = [c for c in FEATURE_COLS if c in dataset.columns]
+    print(f"사용 피처: {len(actual_feature_cols)}개 {actual_feature_cols}")
+    X = dataset[actual_feature_cols]
     y = dataset["label"]
 
     split = int(len(X) * 0.8)
@@ -208,6 +227,7 @@ def train(data_path: str):
         "date": datetime.now().isoformat(),
         "auc": round(auc, 4),
         "samples": len(dataset),
+        "features": len(actual_feature_cols),
         "model_path": str(MODEL_PATH),
     })
     with open(LOG_PATH, "w") as f:
