@@ -79,6 +79,8 @@ async def test_close_and_reenter_calls_open_when_ml_passes(config, sample_df):
 
     bot._close_position = AsyncMock()
     bot._open_position = AsyncMock()
+    bot.risk = MagicMock()
+    bot.risk.can_open_new_position.return_value = True
     bot.ml_filter = MagicMock()
     bot.ml_filter.is_model_loaded.return_value = True
     bot.ml_filter.should_enter.return_value = True
@@ -154,3 +156,35 @@ async def test_process_candle_calls_close_and_reenter_on_reverse_signal(config, 
     bot._close_and_reenter.assert_awaited_once()
     call_args = bot._close_and_reenter.call_args
     assert call_args.args[1] == "SHORT"
+
+
+@pytest.mark.asyncio
+async def test_process_candle_passes_raw_signal_to_close_and_reenter_even_if_ml_loaded(config, sample_df):
+    """포지션 보유 시 ML 필터가 로드되어 있어도 process_candle은 raw signal을 _close_and_reenter에 전달한다."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+
+    bot.exchange = AsyncMock()
+    bot.exchange.get_position = AsyncMock(return_value={
+        "positionAmt": "100",
+        "entryPrice": "0.5",
+        "markPrice": "0.52",
+    })
+    bot._close_and_reenter = AsyncMock()
+    bot.ml_filter = MagicMock()
+    bot.ml_filter.is_model_loaded.return_value = True  # 모델 로드됨
+    bot.ml_filter.should_enter.return_value = False    # ML이 차단하더라도
+
+    with patch("src.bot.Indicators") as MockInd:
+        mock_ind = MagicMock()
+        mock_ind.calculate_all.return_value = sample_df
+        mock_ind.get_signal.return_value = "SHORT"
+        MockInd.return_value = mock_ind
+        await bot.process_candle(sample_df)
+
+    # ML 필터가 차단해도 _close_and_reenter는 호출되어야 한다 (ML 재평가는 내부에서)
+    bot._close_and_reenter.assert_awaited_once()
+    call_args = bot._close_and_reenter.call_args
+    assert call_args.args[1] == "SHORT"
+    # process_candle에서 ml_filter.should_enter가 호출되지 않아야 한다
+    bot.ml_filter.should_enter.assert_not_called()

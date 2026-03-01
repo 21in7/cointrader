@@ -58,32 +58,32 @@ class TradingBot:
 
         ind = Indicators(df)
         df_with_indicators = ind.calculate_all()
-        signal = ind.get_signal(df_with_indicators)
-
-        if signal != "HOLD" and self.ml_filter.is_model_loaded():
-            features = build_features(df_with_indicators, signal, btc_df=btc_df, eth_df=eth_df)
-            if not self.ml_filter.should_enter(features):
-                logger.info(f"ML 필터 차단: {signal} 신호 무시")
-                signal = "HOLD"
+        raw_signal = ind.get_signal(df_with_indicators)
 
         current_price = df_with_indicators["close"].iloc[-1]
-        logger.info(f"신호: {signal} | 현재가: {current_price:.4f} USDT")
+        logger.info(f"신호: {raw_signal} | 현재가: {current_price:.4f} USDT")
 
         position = await self.exchange.get_position()
 
-        if position is None and signal != "HOLD":
+        if position is None and raw_signal != "HOLD":
             self.current_trade_side = None
             if not self.risk.can_open_new_position():
                 logger.info("최대 포지션 수 도달")
                 return
+            signal = raw_signal
+            if self.ml_filter.is_model_loaded():
+                features = build_features(df_with_indicators, signal, btc_df=btc_df, eth_df=eth_df)
+                if not self.ml_filter.should_enter(features):
+                    logger.info(f"ML 필터 차단: {signal} 신호 무시")
+                    return
             await self._open_position(signal, df_with_indicators)
 
         elif position is not None:
             pos_side = "LONG" if float(position["positionAmt"]) > 0 else "SHORT"
-            if (pos_side == "LONG" and signal == "SHORT") or \
-               (pos_side == "SHORT" and signal == "LONG"):
+            if (pos_side == "LONG" and raw_signal == "SHORT") or \
+               (pos_side == "SHORT" and raw_signal == "LONG"):
                 await self._close_and_reenter(
-                    position, signal, df_with_indicators, btc_df=btc_df, eth_df=eth_df
+                    position, raw_signal, df_with_indicators, btc_df=btc_df, eth_df=eth_df
                 )
 
     async def _open_position(self, signal: str, df):
