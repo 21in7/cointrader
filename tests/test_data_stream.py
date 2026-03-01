@@ -57,7 +57,7 @@ async def test_preload_history_fills_buffer():
         for i in range(201)  # 201개 반환 → 마지막 1개 제외 → 200개 버퍼
     ]
 
-    mock_client = MagicMock()
+    mock_client = AsyncMock()
     mock_client.futures_klines.return_value = fake_klines
 
     await stream._preload_history(mock_client, limit=200)

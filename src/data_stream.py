@@ -48,14 +48,10 @@ class KlineStream:
     async def _preload_history(self, client: AsyncClient, limit: int = 200):
         """REST API로 과거 캔들 데이터를 버퍼에 미리 채운다."""
         logger.info(f"과거 캔들 {limit}개 로드 중...")
-        loop = asyncio.get_event_loop()
-        klines = await loop.run_in_executor(
-            None,
-            lambda: client.futures_klines(
-                symbol=self.symbol.upper(),
-                interval=self.interval,
-                limit=limit,
-            ),
+        klines = await client.futures_klines(
+            symbol=self.symbol.upper(),
+            interval=self.interval,
+            limit=limit,
         )
         # 마지막 캔들은 아직 닫히지 않았을 수 있으므로 제외
         for k in klines[:-1]:
