@@ -60,9 +60,9 @@ def test_reload_model(tmp_path):
     )
     assert not f.is_model_loaded()
 
-    # _model을 직접 주입해서 is_model_loaded가 True인지 확인
+    # _lgbm_model을 직접 주입해서 is_model_loaded가 True인지 확인
     mock_model = MagicMock()
-    f._model = mock_model
+    f._lgbm_model = mock_model
     assert f.is_model_loaded()
 
     # reload_model 호출 시 파일이 없으면 _try_load가 _model을 변경하지 않음
