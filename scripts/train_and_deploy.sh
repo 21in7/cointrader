@@ -21,7 +21,15 @@ python scripts/fetch_history.py --symbol XRPUSDT --interval 1m --days 90 --outpu
 
 echo ""
 echo "=== [2/3] 모델 학습 ==="
-python scripts/train_model.py --data data/xrpusdt_1m.parquet
+# TRAIN_BACKEND=mlx 로 설정하면 Apple Silicon GPU(Metal)를 사용한다 (기본: lgbm)
+BACKEND="${TRAIN_BACKEND:-lgbm}"
+if [ "$BACKEND" = "mlx" ]; then
+    echo "  백엔드: MLX (Apple Silicon GPU)"
+    python scripts/train_mlx_model.py --data data/xrpusdt_1m.parquet
+else
+    echo "  백엔드: LightGBM (CPU)"
+    python scripts/train_model.py --data data/xrpusdt_1m.parquet
+fi
 
 echo ""
 echo "=== [3/3] LXC 배포 ==="

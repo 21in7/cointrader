@@ -8,7 +8,6 @@ from src.notifier import DiscordNotifier
 from src.risk_manager import RiskManager
 from src.ml_filter import MLFilter
 from src.ml_features import build_features
-from src.retrainer import Retrainer
 
 
 class TradingBot:
@@ -18,7 +17,6 @@ class TradingBot:
         self.notifier = DiscordNotifier(config.discord_webhook_url)
         self.risk = RiskManager(config)
         self.ml_filter = MLFilter()
-        self.retrainer = Retrainer(ml_filter=self.ml_filter)
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
         self.stream = KlineStream(
             symbol=config.symbol,
@@ -165,7 +163,6 @@ class TradingBot:
     async def run(self):
         logger.info(f"봇 시작: {self.config.symbol}, 레버리지 {self.config.leverage}x")
         await self._recover_position()
-        asyncio.create_task(self.retrainer.schedule_daily(hour=3))
         await self.stream.start(
             api_key=self.config.api_key,
             api_secret=self.config.api_secret,

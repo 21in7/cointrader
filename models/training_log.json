@@ -4,5 +4,19 @@
     "auc": 0.546,
     "samples": 1772,
     "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-01T18:44:22.163935",
+    "backend": "mlx",
+    "auc": 0.5054,
+    "samples": 1772,
+    "train_sec": 0.7,
+    "model_path": "models/mlx_filter.weights"
+  },
+  {
+    "date": "2026-03-01T18:52:52.991917",
+    "auc": 0.5405,
+    "samples": 1704,
+    "model_path": "models/lgbm_filter.pkl"
   }
 ]

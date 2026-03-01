@@ -98,11 +98,25 @@ docker compose logs -f cointrader
 # 1. 과거 데이터 수집
 python scripts/fetch_history.py
 
-# 2. 모델 학습
+# 2. 모델 학습 (LightGBM, CPU)
 python scripts/train_model.py
 ```
 
 학습된 모델은 `models/lgbm_filter.pkl`에 저장되며, 봇이 실행 중이면 매일 새벽 3시에 자동으로 재학습·리로드됩니다.
+
+### Apple Silicon GPU 가속 학습 (M1/M2/M3/M4)
+
+M 시리즈 맥에서는 MLX를 사용해 통합 GPU(Metal)로 학습할 수 있습니다.
+
+```bash
+# MLX 신경망 필터 학습 (GPU 자동 사용)
+python scripts/train_mlx_model.py
+
+# train_and_deploy.sh에서 MLX 백엔드 사용
+TRAIN_BACKEND=mlx bash scripts/train_and_deploy.sh
+```
+
+> **참고**: LightGBM은 Apple Silicon GPU를 공식 지원하지 않습니다. MLX는 Apple이 만든 ML 프레임워크로 통합 GPU를 자동으로 활용합니다. Neural Engine(NPU)은 Apple 내부 전용으로 Python에서 직접 제어할 수 없습니다.
 
 ---
 
