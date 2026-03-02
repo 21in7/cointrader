@@ -204,11 +204,20 @@ async def test_process_candle_fetches_oi_and_funding(config, sample_df):
     bot.exchange.get_open_interest = AsyncMock(return_value=5000000.0)
     bot.exchange.get_funding_rate = AsyncMock(return_value=0.0001)
 
-    with patch("src.bot.build_features") as mock_build:
-        from src.ml_features import FEATURE_COLS
-        mock_build.return_value = pd.Series({col: 0.0 for col in FEATURE_COLS})
-        bot.ml_filter.is_model_loaded = MagicMock(return_value=False)
-        await bot.process_candle(sample_df)
+    # 신호를 LONG으로 강제해 build_features가 반드시 호출되도록 함
+    with patch("src.bot.Indicators") as mock_ind_cls:
+        mock_ind = MagicMock()
+        mock_ind.calculate_all.return_value = sample_df
+        mock_ind.get_signal.return_value = "LONG"
+        mock_ind_cls.return_value = mock_ind
+
+        with patch("src.bot.build_features") as mock_build:
+            from src.ml_features import FEATURE_COLS
+            mock_build.return_value = pd.Series({col: 0.0 for col in FEATURE_COLS})
+            bot.ml_filter.is_model_loaded = MagicMock(return_value=False)
+            # _open_position은 이 테스트의 관심사가 아니므로 mock 처리
+            bot._open_position = AsyncMock()
+            await bot.process_candle(sample_df)
 
     assert mock_build.called
     call_kwargs = mock_build.call_args.kwargs
