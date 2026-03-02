@@ -188,3 +188,29 @@ async def test_process_candle_passes_raw_signal_to_close_and_reenter_even_if_ml_
     assert call_args.args[1] == "SHORT"
     # process_candle에서 ml_filter.should_enter가 호출되지 않아야 한다
     bot.ml_filter.should_enter.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_process_candle_fetches_oi_and_funding(config, sample_df):
+    """process_candle()이 OI와 펀딩비를 조회하고 build_features에 전달하는지 확인."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+
+    bot.exchange = AsyncMock()
+    bot.exchange.get_balance = AsyncMock(return_value=1000.0)
+    bot.exchange.get_position = AsyncMock(return_value=None)
+    bot.exchange.place_order = AsyncMock(return_value={"orderId": "1"})
+    bot.exchange.set_leverage = AsyncMock()
+    bot.exchange.get_open_interest = AsyncMock(return_value=5000000.0)
+    bot.exchange.get_funding_rate = AsyncMock(return_value=0.0001)
+
+    with patch("src.bot.build_features") as mock_build:
+        from src.ml_features import FEATURE_COLS
+        mock_build.return_value = pd.Series({col: 0.0 for col in FEATURE_COLS})
+        bot.ml_filter.is_model_loaded = MagicMock(return_value=False)
+        await bot.process_candle(sample_df)
+
+    assert mock_build.called
+    call_kwargs = mock_build.call_args.kwargs
+    assert "oi_change" in call_kwargs
+    assert "funding_rate" in call_kwargs

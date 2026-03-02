@@ -1,3 +1,4 @@
+import asyncio
 import pandas as pd
 from loguru import logger
 from src.config import Config
@@ -18,6 +19,7 @@ class TradingBot:
         self.risk = RiskManager(config)
         self.ml_filter = MLFilter()
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
+        self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
         self.stream = MultiSymbolStream(
             symbols=[config.symbol, "BTCUSDT", "ETHUSDT"],
             interval="15m",
@@ -49,8 +51,34 @@ class TradingBot:
         else:
             logger.info("기존 포지션 없음 - 신규 진입 대기")
 
+    async def _fetch_market_microstructure(self) -> tuple[float, float]:
+        """OI 변화율과 펀딩비를 실시간으로 조회한다. 실패 시 0.0으로 폴백."""
+        oi_val, fr_val = await asyncio.gather(
+            self.exchange.get_open_interest(),
+            self.exchange.get_funding_rate(),
+            return_exceptions=True,
+        )
+        oi_float = float(oi_val) if isinstance(oi_val, (int, float)) else 0.0
+        fr_float = float(fr_val) if isinstance(fr_val, (int, float)) else 0.0
+
+        oi_change = self._calc_oi_change(oi_float)
+        logger.debug(f"OI={oi_float:.0f}, OI변화율={oi_change:.6f}, 펀딩비={fr_float:.6f}")
+        return oi_change, fr_float
+
+    def _calc_oi_change(self, current_oi: float) -> float:
+        """이전 OI 대비 변화율을 계산한다. 첫 캔들은 0.0 반환."""
+        if self._prev_oi is None or self._prev_oi == 0.0:
+            self._prev_oi = current_oi
+            return 0.0
+        change = (current_oi - self._prev_oi) / self._prev_oi
+        self._prev_oi = current_oi
+        return change
+
     async def process_candle(self, df, btc_df=None, eth_df=None):
         self.ml_filter.check_and_reload()
+
+        # 캔들 마감 시 OI/펀딩비 실시간 조회 (실패해도 0으로 폴백)
+        oi_change, funding_rate = await self._fetch_market_microstructure()
 
         if not self.risk.is_trading_allowed():
             logger.warning("리스크 한도 초과 - 거래 중단")
@@ -71,8 +99,12 @@ class TradingBot:
                 logger.info("최대 포지션 수 도달")
                 return
             signal = raw_signal
+            features = build_features(
+                df_with_indicators, signal,
+                btc_df=btc_df, eth_df=eth_df,
+                oi_change=oi_change, funding_rate=funding_rate,
+            )
             if self.ml_filter.is_model_loaded():
-                features = build_features(df_with_indicators, signal, btc_df=btc_df, eth_df=eth_df)
                 if not self.ml_filter.should_enter(features):
                     logger.info(f"ML 필터 차단: {signal} 신호 무시")
                     return
@@ -83,7 +115,9 @@ class TradingBot:
             if (pos_side == "LONG" and raw_signal == "SHORT") or \
                (pos_side == "SHORT" and raw_signal == "LONG"):
                 await self._close_and_reenter(
-                    position, raw_signal, df_with_indicators, btc_df=btc_df, eth_df=eth_df
+                    position, raw_signal, df_with_indicators,
+                    btc_df=btc_df, eth_df=eth_df,
+                    oi_change=oi_change, funding_rate=funding_rate,
                 )
 
     async def _open_position(self, signal: str, df):
@@ -175,6 +209,8 @@ class TradingBot:
         df,
         btc_df=None,
         eth_df=None,
+        oi_change: float = 0.0,
+        funding_rate: float = 0.0,
     ) -> None:
         """기존 포지션을 청산하고, ML 필터 통과 시 반대 방향으로 즉시 재진입한다."""
         await self._close_position(position)
@@ -184,7 +220,11 @@ class TradingBot:
             return
 
         if self.ml_filter.is_model_loaded():
-            features = build_features(df, signal, btc_df=btc_df, eth_df=eth_df)
+            features = build_features(
+                df, signal,
+                btc_df=btc_df, eth_df=eth_df,
+                oi_change=oi_change, funding_rate=funding_rate,
+            )
             if not self.ml_filter.should_enter(features):
                 logger.info(f"ML 필터 차단: {signal} 재진입 무시")
                 return
