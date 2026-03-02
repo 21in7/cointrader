@@ -49,13 +49,20 @@ class DiscordNotifier:
         self,
         symbol: str,
         side: str,
+        close_reason: str,
         exit_price: float,
-        pnl: float,
+        estimated_pnl: float,
+        net_pnl: float,
+        diff: float,
     ) -> None:
-        emoji = "✅" if pnl >= 0 else "❌"
+        emoji_map = {"TP": "✅", "SL": "❌", "MANUAL": "🔶"}
+        emoji = emoji_map.get(close_reason, "🔶")
         msg = (
-            f"{emoji} **[{symbol}] {side} 청산**\n"
-            f"청산가: `{exit_price:.4f}` | PnL: `{pnl:+.4f} USDT`"
+            f"{emoji} **[{symbol}] {side} {close_reason} 청산**\n"
+            f"청산가:               `{exit_price:.4f}`\n"
+            f"예상 수익:            `{estimated_pnl:+.4f} USDT`\n"
+            f"실제 순수익:          `{net_pnl:+.4f} USDT`\n"
+            f"차이(슬리피지+수수료): `{diff:+.4f} USDT`"
         )
         self._send(msg)
 
