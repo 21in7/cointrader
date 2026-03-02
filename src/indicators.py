@@ -43,6 +43,10 @@ class Indicators:
         df["stoch_k"] = stoch["STOCHRSIk_14_14_3_3"]
         df["stoch_d"] = stoch["STOCHRSId_14_14_3_3"]
 
+        # ADX (14) — 횡보장 필터
+        adx_df = ta.adx(df["high"], df["low"], df["close"], length=14)
+        df["adx"] = adx_df["ADX_14"]
+
         # 거래량 이동평균
         df["vol_ma20"] = ta.sma(df["volume"], length=20)
 

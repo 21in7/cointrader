@@ -45,6 +45,15 @@ def test_bollinger_bands(sample_df):
     assert (valid["bb_upper"] >= valid["bb_lower"]).all()
 
 
+def test_adx_column_exists(sample_df):
+    """calculate_all()이 adx 컬럼을 생성하는지 확인."""
+    ind = Indicators(sample_df)
+    df = ind.calculate_all()
+    assert "adx" in df.columns
+    valid = df["adx"].dropna()
+    assert (valid >= 0).all()
+
+
 def test_signal_returns_direction(sample_df):
     ind = Indicators(sample_df)
     df = ind.calculate_all()
