@@ -59,10 +59,13 @@ class UserDataStream:
             except asyncio.CancelledError:
                 logger.info("User Data Stream 정상 종료")
                 if self._listen_key:
-                    await self._exchange.delete_listen_key(self._listen_key)
+                    try:
+                        await self._exchange.delete_listen_key(self._listen_key)
+                    except Exception:
+                        pass
                 if self._keepalive_task:
                     self._keepalive_task.cancel()
-                break
+                raise
 
             except Exception as e:
                 logger.warning(
