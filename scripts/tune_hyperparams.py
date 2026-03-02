@@ -31,14 +31,14 @@ from optuna.pruners import MedianPruner
 from sklearn.metrics import roc_auc_score
 
 from src.ml_features import FEATURE_COLS
-from src.dataset_builder import generate_dataset_vectorized
+from src.dataset_builder import generate_dataset_vectorized, stratified_undersample
 
 
 # ──────────────────────────────────────────────
 # 데이터 로드 및 데이터셋 생성 (1회 캐싱)
 # ──────────────────────────────────────────────
 
-def load_dataset(data_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def load_dataset(data_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     parquet 로드 → 벡터화 데이터셋 생성 → (X, y, w) numpy 배열 반환.
     study 시작 전 1회만 호출하여 모든 trial이 공유한다.
@@ -63,7 +63,7 @@ def load_dataset(data_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     df = df_raw[base_cols].copy()
 
     print("\n데이터셋 생성 중 (1회만 실행)...")
-    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=0.0)
+    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=0.0, negative_ratio=5)
 
     if dataset.empty or "label" not in dataset.columns:
         raise ValueError("데이터셋 생성 실패: 샘플 0개")
@@ -72,13 +72,14 @@ def load_dataset(data_path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     X = dataset[actual_feature_cols].values.astype(np.float32)
     y = dataset["label"].values.astype(np.int8)
     w = dataset["sample_weight"].values.astype(np.float32)
+    source = dataset["source"].values if "source" in dataset.columns else np.full(len(dataset), "signal")
 
     pos = int(y.sum())
     neg = int((y == 0).sum())
     print(f"데이터셋 완성: {len(dataset):,}개 샘플 (양성={pos}, 음성={neg})")
     print(f"사용 피처: {len(actual_feature_cols)}개\n")
 
-    return X, y, w
+    return X, y, w, source
 
 
 # ──────────────────────────────────────────────
@@ -89,6 +90,7 @@ def _walk_forward_cv(
     X: np.ndarray,
     y: np.ndarray,
     w: np.ndarray,
+    source: np.ndarray,
     params: dict,
     n_splits: int,
     train_ratio: float,
@@ -113,13 +115,9 @@ def _walk_forward_cv(
         X_tr, y_tr, w_tr = X[:tr_end], y[:tr_end], w[:tr_end]
         X_val, y_val = X[tr_end:val_end], y[tr_end:val_end]
 
-        # 클래스 불균형 처리: 언더샘플링 (시간 순서 유지)
-        pos_idx = np.where(y_tr == 1)[0]
-        neg_idx = np.where(y_tr == 0)[0]
-        if len(neg_idx) > len(pos_idx) and len(pos_idx) > 0:
-            rng = np.random.default_rng(42)
-            neg_idx = rng.choice(neg_idx, size=len(pos_idx), replace=False)
-        bal_idx = np.sort(np.concatenate([pos_idx, neg_idx]))
+        # 계층적 샘플링: signal 전수 유지, HOLD negative만 양성 수 만큼
+        source_tr = source[:tr_end]
+        bal_idx = stratified_undersample(y_tr, source_tr, seed=42)
 
         if len(bal_idx) < 20 or len(np.unique(y_val)) < 2:
             fold_aucs.append(0.5)
@@ -152,6 +150,7 @@ def make_objective(
     X: np.ndarray,
     y: np.ndarray,
     w: np.ndarray,
+    source: np.ndarray,
     n_splits: int,
     train_ratio: float,
 ):
@@ -192,7 +191,7 @@ def make_objective(
         }
 
         mean_auc, fold_aucs = _walk_forward_cv(
-            X, y, w_scaled, params,
+            X, y, w_scaled, source, params,
             n_splits=n_splits,
             train_ratio=train_ratio,
             trial=trial,
@@ -214,6 +213,7 @@ def measure_baseline(
     X: np.ndarray,
     y: np.ndarray,
     w: np.ndarray,
+    source: np.ndarray,
     n_splits: int,
     train_ratio: float,
 ) -> tuple[float, list[float]]:
@@ -241,7 +241,7 @@ def measure_baseline(
         }
         print("베이스라인 측정 중 (active 파일 없음 → 코드 내 기본 파라미터)...")
 
-    return _walk_forward_cv(X, y, w, baseline_params, n_splits=n_splits, train_ratio=train_ratio)
+    return _walk_forward_cv(X, y, w, source, baseline_params, n_splits=n_splits, train_ratio=train_ratio)
 
 
 # ──────────────────────────────────────────────
@@ -377,14 +377,14 @@ def main():
     args = parser.parse_args()
 
     # 1. 데이터셋 로드 (1회)
-    X, y, w = load_dataset(args.data)
+    X, y, w, source = load_dataset(args.data)
 
     # 2. 베이스라인 측정
     if args.no_baseline:
         baseline_auc, baseline_folds = 0.0, []
         print("베이스라인 측정 건너뜀 (--no-baseline)\n")
     else:
-        baseline_auc, baseline_folds = measure_baseline(X, y, w, args.folds, args.train_ratio)
+        baseline_auc, baseline_folds = measure_baseline(X, y, w, source, args.folds, args.train_ratio)
         print(
             f"베이스라인 AUC: {baseline_auc:.4f} "
             f"(폴드별: {[round(a, 4) for a in baseline_folds]})\n"
@@ -401,7 +401,7 @@ def main():
         study_name="lgbm_wf_auc",
     )
 
-    objective = make_objective(X, y, w, n_splits=args.folds, train_ratio=args.train_ratio)
+    objective = make_objective(X, y, w, source, n_splits=args.folds, train_ratio=args.train_ratio)
 
     print(f"Optuna 탐색 시작: {args.trials} trials, {args.folds}폴드 Walk-Forward")
     print("(trial 완료마다 진행 상황 출력)\n")
