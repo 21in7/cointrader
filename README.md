@@ -22,7 +22,7 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / M
 - **실시간 TP/SL 감지**: Binance User Data Stream으로 TP/SL 작동을 즉시 감지 (캔들 마감 대기 없음)
 - **순수익(Net PnL) 기록**: 바이낸스 `realizedProfit - commission`으로 정확한 순수익 계산
 - **Discord 상세 청산 알림**: 예상 수익 vs 실제 순수익 + 슬리피지/수수료 차이 표시
-- **listenKey 자동 갱신**: 30분 keepalive + 네트워크 단절 시 자동 재연결
+- **listenKey 자동 갱신**: 30분 keepalive + 네트워크 단절 시 자동 재연결. `stream.recv()` 기반으로 수신하며, 라이브러리 내부 에러 페이로드(`{"e":"error"}`) 감지 시 즉시 재연결하여 좀비 커넥션 방지
 - **Discord 알림**: 진입·청산·오류 이벤트 실시간 웹훅 알림
 - **CI/CD**: Jenkins + Gitea Container Registry 기반 Docker 이미지 자동 빌드·배포 (LXC 운영 서버 자동 적용)
 

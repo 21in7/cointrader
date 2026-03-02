@@ -43,7 +43,16 @@ class UserDataStream:
             try:
                 async with bm.futures_user_socket() as stream:
                     logger.info(f"User Data Stream 연결 완료 (심볼 필터: {self._symbol})")
-                    async for msg in stream:
+                    while True:
+                        msg = await stream.recv()
+
+                        if isinstance(msg, dict) and msg.get("e") == "error":
+                            logger.warning(
+                                f"웹소켓 내부 에러 수신: {msg.get('m', msg)} — "
+                                f"재연결을 위해 연결 종료"
+                            )
+                            break
+
                         await self._handle_message(msg)
 
             except asyncio.CancelledError:
