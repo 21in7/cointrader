@@ -146,3 +146,29 @@ class BinanceFuturesClient:
             )
         except Exception as e:
             logger.warning(f"Algo 주문 전체 취소 실패 (무시): {e}")
+
+    async def get_open_interest(self) -> float | None:
+        """현재 미결제약정(OI)을 조회한다. 오류 시 None 반환."""
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_open_interest(symbol=self.config.symbol),
+            )
+            return float(result["openInterest"])
+        except Exception as e:
+            logger.warning(f"OI 조회 실패 (무시): {e}")
+            return None
+
+    async def get_funding_rate(self) -> float | None:
+        """현재 펀딩비를 조회한다. 오류 시 None 반환."""
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_mark_price(symbol=self.config.symbol),
+            )
+            return float(result["lastFundingRate"])
+        except Exception as e:
+            logger.warning(f"펀딩비 조회 실패 (무시): {e}")
+            return None

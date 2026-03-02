@@ -25,6 +25,21 @@ def client():
     return c
 
 
+@pytest.fixture
+def exchange():
+    os.environ.update({
+        "BINANCE_API_KEY": "test_key",
+        "BINANCE_API_SECRET": "test_secret",
+        "SYMBOL": "XRPUSDT",
+        "LEVERAGE": "10",
+    })
+    config = Config()
+    c = BinanceFuturesClient.__new__(BinanceFuturesClient)
+    c.config = config
+    c.client = MagicMock()
+    return c
+
+
 @pytest.mark.asyncio
 async def test_set_leverage(config):
     with patch("src.exchange.Client") as MockClient:
@@ -54,3 +69,47 @@ def test_calculate_quantity_zero_balance(client):
     """잔고 0이면 최소 명목금액 기반 수량 반환"""
     qty = client.calculate_quantity(balance=0.0, price=2.5, leverage=10, margin_ratio=0.50)
     assert qty > 0
+
+
+@pytest.mark.asyncio
+async def test_get_open_interest(exchange):
+    """get_open_interest()가 float을 반환하는지 확인."""
+    exchange.client.futures_open_interest = MagicMock(
+        return_value={"openInterest": "123456.789"}
+    )
+    result = await exchange.get_open_interest()
+    assert isinstance(result, float)
+    assert result == pytest.approx(123456.789)
+
+
+@pytest.mark.asyncio
+async def test_get_funding_rate(exchange):
+    """get_funding_rate()가 float을 반환하는지 확인."""
+    exchange.client.futures_mark_price = MagicMock(
+        return_value={"lastFundingRate": "0.0001"}
+    )
+    result = await exchange.get_funding_rate()
+    assert isinstance(result, float)
+    assert result == pytest.approx(0.0001)
+
+
+@pytest.mark.asyncio
+async def test_get_open_interest_error_returns_none(exchange):
+    """API 오류 시 None 반환 확인."""
+    from binance.exceptions import BinanceAPIException
+    exchange.client.futures_open_interest = MagicMock(
+        side_effect=BinanceAPIException(MagicMock(status_code=400), 400, '{"code":-1121,"msg":"Invalid symbol"}')
+    )
+    result = await exchange.get_open_interest()
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_funding_rate_error_returns_none(exchange):
+    """API 오류 시 None 반환 확인."""
+    from binance.exceptions import BinanceAPIException
+    exchange.client.futures_mark_price = MagicMock(
+        side_effect=BinanceAPIException(MagicMock(status_code=400), 400, '{"code":-1121,"msg":"Invalid symbol"}')
+    )
+    result = await exchange.get_funding_rate()
+    assert result is None
