@@ -106,25 +106,11 @@ docker compose logs -f cointrader
 
 봇은 모델 파일이 없으면 ML 필터 없이 동작합니다. 최초 실행 전 또는 수동 재학습 시 아래 순서로 진행합니다.
 
-### 최초 실행 (데이터 초기화)
-
-`data/combined_15m.parquet`가 없을 때 1회만 실행합니다. 이후 매일 크론탭이 `train_and_deploy.sh`를 실행하면 35일치 신규 데이터가 자동으로 Upsert됩니다.
-
-```bash
-# 최초 1회: 1년치 캔들 전체 수집 (OI/펀딩비는 최근 30일만 실제 값, 나머지 0.0)
-python scripts/fetch_history.py \
-    --symbols XRPUSDT BTCUSDT ETHUSDT \
-    --interval 15m \
-    --days 365 \
-    --no-upsert \
-    --output data/combined_15m.parquet
-```
-
-> 이후 매일 `train_and_deploy.sh` 실행 시 35일치 신규 데이터를 기존 parquet에 Upsert하여 OI/펀딩비 0.0 구간이 야금야금 채워집니다. 시간이 지날수록 실제 OI/펀딩비 값이 있는 학습 구간이 1달 → 2달 → 반년으로 늘어납니다.
-
 ### 전체 파이프라인 (권장)
 
 맥미니에서 데이터 수집 → 학습 → LXC 배포까지 한 번에 실행합니다.
+
+> **자동 분기**: `data/combined_15m.parquet`가 없으면 1년치(365일) 전체 수집, 있으면 35일치 Upsert로 자동 전환합니다. 서버 이전이나 데이터 유실 시에도 사람의 개입 없이 자동 복구됩니다.
 
 ```bash
 # LightGBM + Walk-Forward 5폴드 (기본값)
