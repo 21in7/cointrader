@@ -249,3 +249,20 @@ def test_signal_samples_preserved_after_sampling(signal_producing_df):
     signal_count = (result_with_hold["source"] == "signal").sum()
     assert signal_count == len(result_signal_only), \
         f"Signal 샘플 손실: 원본={len(result_signal_only)}, 유지={signal_count}"
+
+
+def test_stratified_undersample_preserves_signal():
+    """stratified_undersample은 signal 샘플을 전수 유지해야 한다."""
+    from src.dataset_builder import stratified_undersample
+
+    y      = np.array([1, 0, 0, 0, 0, 0, 0, 0, 1, 0])
+    source = np.array(["signal", "signal", "signal", "hold_negative",
+                        "hold_negative", "hold_negative", "hold_negative",
+                        "hold_negative", "signal", "signal"])
+
+    idx = stratified_undersample(y, source, seed=42)
+
+    # signal 인덱스: 0, 1, 2, 8, 9 → 전부 포함
+    signal_indices = np.where(source == "signal")[0]
+    for si in signal_indices:
+        assert si in idx, f"signal 인덱스 {si}가 누락됨"
