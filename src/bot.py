@@ -19,6 +19,8 @@ class TradingBot:
         self.risk = RiskManager(config)
         self.ml_filter = MLFilter()
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
+        self._entry_price: float | None = None
+        self._entry_quantity: float | None = None
         self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
         self.stream = MultiSymbolStream(
             symbols=[config.symbol, "BTCUSDT", "ETHUSDT"],
@@ -152,6 +154,8 @@ class TradingBot:
         }
 
         self.current_trade_side = signal
+        self._entry_price = price
+        self._entry_quantity = quantity
         self.notifier.notify_open(
             symbol=self.config.symbol,
             side=signal,
@@ -182,6 +186,46 @@ class TradingBot:
             stop_price=round(take_profit, 4),
             reduce_only=True,
         )
+
+    def _calc_estimated_pnl(self, exit_price: float) -> float:
+        """진입가·수량 기반 예상 PnL 계산 (수수료 미반영)."""
+        if self._entry_price is None or self._entry_quantity is None:
+            return 0.0
+        if self.current_trade_side == "LONG":
+            return (exit_price - self._entry_price) * self._entry_quantity
+        return (self._entry_price - exit_price) * self._entry_quantity
+
+    async def _on_position_closed(
+        self,
+        net_pnl: float,
+        close_reason: str,
+        exit_price: float,
+    ) -> None:
+        """User Data Stream에서 청산 감지 시 호출되는 콜백."""
+        estimated_pnl = self._calc_estimated_pnl(exit_price)
+        diff = net_pnl - estimated_pnl
+
+        self.risk.record_pnl(net_pnl)
+
+        self.notifier.notify_close(
+            symbol=self.config.symbol,
+            side=self.current_trade_side or "UNKNOWN",
+            close_reason=close_reason,
+            exit_price=exit_price,
+            estimated_pnl=estimated_pnl,
+            net_pnl=net_pnl,
+            diff=diff,
+        )
+
+        logger.success(
+            f"포지션 청산({close_reason}): 예상={estimated_pnl:+.4f}, "
+            f"순수익={net_pnl:+.4f}, 차이={diff:+.4f} USDT"
+        )
+
+        # Flat 상태로 초기화
+        self.current_trade_side = None
+        self._entry_price = None
+        self._entry_quantity = None
 
     async def _close_position(self, position: dict):
         """포지션 청산 주문만 실행한다. PnL 기록/알림은 _on_position_closed 콜백이 담당."""
