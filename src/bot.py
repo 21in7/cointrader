@@ -9,6 +9,7 @@ from src.notifier import DiscordNotifier
 from src.risk_manager import RiskManager
 from src.ml_filter import MLFilter
 from src.ml_features import build_features
+from src.user_data_stream import UserDataStream
 
 
 class TradingBot:
@@ -272,7 +273,19 @@ class TradingBot:
         balance = await self.exchange.get_balance()
         self.risk.set_base_balance(balance)
         logger.info(f"기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")
-        await self.stream.start(
-            api_key=self.config.api_key,
-            api_secret=self.config.api_secret,
+
+        user_stream = UserDataStream(
+            exchange=self.exchange,
+            on_order_filled=self._on_position_closed,
+        )
+
+        await asyncio.gather(
+            self.stream.start(
+                api_key=self.config.api_key,
+                api_secret=self.config.api_secret,
+            ),
+            user_stream.start(
+                api_key=self.config.api_key,
+                api_secret=self.config.api_secret,
+            ),
         )
