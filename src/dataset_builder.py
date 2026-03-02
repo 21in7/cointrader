@@ -47,6 +47,10 @@ def _calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     d["stoch_k"] = stoch["STOCHRSIk_14_14_3_3"]
     d["stoch_d"] = stoch["STOCHRSId_14_14_3_3"]
 
+    # ADX (14) — 횡보장 필터
+    adx_df = ta.adx(high, low, close, length=14)
+    d["adx"] = adx_df["ADX_14"]
+
     return d
 
 
@@ -111,6 +115,12 @@ def _calc_signals(d: pd.DataFrame) -> np.ndarray:
     signal_arr[short_enter] = "SHORT"
     # 둘 다 해당하면 HOLD (충돌 방지)
     signal_arr[long_enter & short_enter] = "HOLD"
+
+    # ADX 횡보장 필터: ADX < 25이면 추세 부재로 판단하여 진입 차단
+    if "adx" in d.columns:
+        adx = d["adx"].values
+        low_adx = (~np.isnan(adx)) & (adx < 25)
+        signal_arr[low_adx] = "HOLD"
 
     return signal_arr
 
