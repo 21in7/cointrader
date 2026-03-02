@@ -19,6 +19,10 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / M
 - **반대 시그널 재진입**: 보유 포지션과 반대 신호 발생 시 즉시 청산 후 ML 필터 통과 시 반대 방향 재진입
 - **리스크 관리**: 트레이드당 리스크 비율, 최대 포지션 수, 일일 손실 한도(5%) 제어
 - **포지션 복구**: 봇 재시작 시 기존 포지션 자동 감지 및 상태 복원
+- **실시간 TP/SL 감지**: Binance User Data Stream으로 TP/SL 작동을 즉시 감지 (캔들 마감 대기 없음)
+- **순수익(Net PnL) 기록**: 바이낸스 `realizedProfit - commission`으로 정확한 순수익 계산
+- **Discord 상세 청산 알림**: 예상 수익 vs 실제 순수익 + 슬리피지/수수료 차이 표시
+- **listenKey 자동 갱신**: 30분 keepalive + 네트워크 단절 시 자동 재연결
 - **Discord 알림**: 진입·청산·오류 이벤트 실시간 웹훅 알림
 - **CI/CD**: Jenkins + Gitea Container Registry 기반 Docker 이미지 자동 빌드·배포 (LXC 운영 서버 자동 적용)
 
