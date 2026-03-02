@@ -192,7 +192,7 @@ class TradingBot:
 
     def _calc_estimated_pnl(self, exit_price: float) -> float:
         """진입가·수량 기반 예상 PnL 계산 (수수료 미반영)."""
-        if self._entry_price is None or self._entry_quantity is None:
+        if self._entry_price is None or self._entry_quantity is None or self.current_trade_side is None:
             return 0.0
         if self.current_trade_side == "LONG":
             return (exit_price - self._entry_price) * self._entry_quantity
