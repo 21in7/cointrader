@@ -259,6 +259,56 @@ async def _fetch_oi_and_funding(
     return _merge_oi_funding(candles, oi_df, funding_df)
 
 
+def upsert_parquet(path: "Path | str", new_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    기존 parquet 파일에 신규 데이터를 Upsert(병합)한다.
+
+    규칙:
+    - 기존 행의 oi_change / funding_rate가 0.0이면 신규 값으로 덮어씀
+    - 기존 행의 oi_change / funding_rate가 이미 0이 아니면 유지
+    - 신규 타임스탬프 행은 그냥 추가
+    - 결과는 timestamp 기준 오름차순 정렬, 중복 제거
+
+    Args:
+        path: 기존 parquet 경로 (없으면 new_df 그대로 반환)
+        new_df: 새로 수집한 DataFrame (timestamp index)
+
+    Returns:
+        병합된 DataFrame
+    """
+    path = Path(path)
+    if not path.exists():
+        return new_df.sort_index()
+
+    existing = pd.read_parquet(path)
+
+    # timestamp index 통일 (tz-aware UTC)
+    if existing.index.tz is None:
+        existing.index = existing.index.tz_localize("UTC")
+    if new_df.index.tz is None:
+        new_df.index = new_df.index.tz_localize("UTC")
+
+    # 기존 데이터에서 oi_change / funding_rate가 0.0인 행만 신규 값으로 업데이트
+    UPSERT_COLS = ["oi_change", "funding_rate"]
+    overlap_idx = existing.index.intersection(new_df.index)
+
+    for col in UPSERT_COLS:
+        if col not in existing.columns or col not in new_df.columns:
+            continue
+        # 겹치는 행 중 기존 값이 0.0인 경우에만 신규 값으로 교체
+        zero_mask = existing.loc[overlap_idx, col] == 0.0
+        update_idx = overlap_idx[zero_mask]
+        if len(update_idx) > 0:
+            existing.loc[update_idx, col] = new_df.loc[update_idx, col]
+
+    # 신규 타임스탬프 행 추가 (기존에 없는 것만)
+    new_only_idx = new_df.index.difference(existing.index)
+    if len(new_only_idx) > 0:
+        existing = pd.concat([existing, new_df.loc[new_only_idx]])
+
+    return existing.sort_index()
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="바이낸스 선물 과거 캔들 수집. 단일 심볼 또는 멀티 심볼 병합 저장."
@@ -272,6 +322,10 @@ def main():
         "--no-oi", action="store_true",
         help="OI/펀딩비 수집을 건너뜀 (캔들 데이터만 저장)",
     )
+    parser.add_argument(
+        "--no-upsert", action="store_true",
+        help="기존 parquet을 Upsert하지 않고 새로 덮어씀 (기본: Upsert 활성화)",
+    )
     args = parser.parse_args()
 
     # 하위 호환: --symbol 단독 사용 시 symbols로 통합
@@ -283,8 +337,10 @@ def main():
         if not args.no_oi:
             print(f"\n[OI/펀딩비] {args.symbols[0]} 수집 중...")
             df = asyncio.run(_fetch_oi_and_funding(args.symbols[0], args.days, df))
+        if not args.no_upsert:
+            df = upsert_parquet(args.output, df)
         df.to_parquet(args.output)
-        print(f"저장 완료: {args.output} ({len(df):,}행, {len(df.columns)}컬럼)")
+        print(f"{'Upsert' if not args.no_upsert else '저장'} 완료: {args.output} ({len(df):,}행, {len(df.columns)}컬럼)")
     else:
         # 멀티 심볼: 단일 클라이언트로 순차 수집 후 타임스탬프 기준 inner join 병합
         dfs = asyncio.run(fetch_klines_all(args.symbols, args.interval, args.days))
@@ -304,8 +360,10 @@ def main():
             merged = asyncio.run(_fetch_oi_and_funding(primary, args.days, merged))
 
         output = args.output.replace("xrpusdt", "combined")
+        if not args.no_upsert:
+            merged = upsert_parquet(output, merged)
         merged.to_parquet(output)
-        print(f"\n병합 저장 완료: {output} ({len(merged):,}행, {len(merged.columns)}컬럼)")
+        print(f"\n{'Upsert' if not args.no_upsert else '병합 저장'} 완료: {output} ({len(merged):,}행, {len(merged.columns)}컬럼)")
 
 
 if __name__ == "__main__":
