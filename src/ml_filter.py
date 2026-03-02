@@ -107,6 +107,7 @@ class MLFilter:
         모델 파일의 mtime을 확인해 변경됐으면 리로드한다.
         실제로 리로드가 일어났으면 True 반환.
         """
+        if self._disabled: return False
         onnx_changed = _mtime(self._onnx_path) != self._loaded_onnx_mtime
         lgbm_changed = _mtime(self._lgbm_path) != self._loaded_lgbm_mtime
 
