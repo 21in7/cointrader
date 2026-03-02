@@ -81,3 +81,36 @@ Environment variables via `.env` file (see `.env.example`). Key vars: `BINANCE_A
 - **Docker**: `Dockerfile` (Python 3.12-slim) + `docker-compose.yml`
 - **CI/CD**: Jenkins pipeline (Gitea → Docker registry → LXC production server)
 - Models stored in `models/`, data cache in `data/`, logs in `logs/`
+
+## Design & Implementation Plans
+
+All design documents and implementation plans are stored in `docs/plans/` with the naming convention `YYYY-MM-DD-feature-name.md`. Design docs (`-design.md`) describe architecture decisions; implementation plans (`-plan.md`) contain step-by-step tasks for Claude to execute.
+
+**Chronological plan history:**
+
+| Date | Plan | Status |
+|------|------|--------|
+| 2026-03-01 | `xrp-futures-autotrader` | Completed |
+| 2026-03-01 | `discord-notifier-and-position-recovery` | Completed |
+| 2026-03-01 | `upload-to-gitea` | Completed |
+| 2026-03-01 | `dockerfile-and-docker-compose` | Completed |
+| 2026-03-01 | `fix-pandas-ta-python312` | Completed |
+| 2026-03-01 | `jenkins-gitea-registry-cicd` | Completed |
+| 2026-03-01 | `ml-filter-design` / `ml-filter-implementation` | Completed |
+| 2026-03-01 | `train-on-mac-deploy-to-lxc` | Completed |
+| 2026-03-01 | `m4-accelerated-training` | Completed |
+| 2026-03-01 | `vectorized-dataset-builder` | Completed |
+| 2026-03-01 | `btc-eth-correlation-features` (design + plan) | Completed |
+| 2026-03-01 | `dynamic-margin-ratio` (design + plan) | Completed |
+| 2026-03-01 | `lgbm-improvement` | Completed |
+| 2026-03-01 | `15m-timeframe-upgrade` | Completed |
+| 2026-03-01 | `oi-nan-epsilon-precision-threshold` | Completed |
+| 2026-03-02 | `rs-divide-mlx-nan-fix` | Completed |
+| 2026-03-02 | `reverse-signal-reenter` (design + plan) | Completed |
+| 2026-03-02 | `realtime-oi-funding-features` | Completed |
+| 2026-03-02 | `oi-funding-accumulation` | Completed |
+| 2026-03-02 | `optuna-hyperparam-tuning` (design + plan) | Completed |
+| 2026-03-02 | `user-data-stream-tp-sl-detection` (design + plan) | Completed |
+| 2026-03-02 | `adx-filter-design` | Completed |
+| 2026-03-02 | `hold-negative-sampling` (design + plan) | Completed |
+| 2026-03-03 | `optuna-precision-objective-plan` | Pending |

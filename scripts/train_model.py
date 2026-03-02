@@ -17,7 +17,7 @@ import joblib
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.metrics import roc_auc_score, classification_report
+from sklearn.metrics import roc_auc_score, classification_report, precision_recall_curve
 
 from src.indicators import Indicators
 from src.ml_features import build_features, FEATURE_COLS
@@ -275,7 +275,6 @@ def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str
     auc = roc_auc_score(y_val, val_proba)
 
     # 최적 임계값 탐색: 최소 재현율(0.15) 조건부 정밀도 최대화
-    from sklearn.metrics import precision_recall_curve
     precisions, recalls, thresholds = precision_recall_curve(y_val, val_proba)
     # precision_recall_curve의 마지막 원소는 (1.0, 0.0)이므로 제외
     precisions, recalls = precisions[:-1], recalls[:-1]
@@ -375,6 +374,7 @@ def walk_forward_auc(
     train_end_start = int(n * train_ratio)
 
     aucs = []
+    fold_metrics = []
     for i in range(n_splits):
         tr_end = train_end_start + i * step
         val_end = tr_end + step
@@ -395,12 +395,30 @@ def walk_forward_auc(
         proba = model.predict_proba(X_val)[:, 1]
         auc = roc_auc_score(y_val, proba) if len(np.unique(y_val)) > 1 else 0.5
         aucs.append(auc)
+
+        # 폴드별 최적 임계값 (recall >= 0.15 조건부 precision 최대화)
+        MIN_RECALL = 0.15
+        precs, recs, thrs = precision_recall_curve(y_val, proba)
+        precs, recs = precs[:-1], recs[:-1]
+        valid_idx = np.where(recs >= MIN_RECALL)[0]
+        if len(valid_idx) > 0:
+            best_i = valid_idx[np.argmax(precs[valid_idx])]
+            f_thr, f_prec, f_rec = float(thrs[best_i]), float(precs[best_i]), float(recs[best_i])
+        else:
+            f_thr, f_prec, f_rec = 0.50, 0.0, 0.0
+
+        fold_metrics.append({"auc": auc, "precision": f_prec, "recall": f_rec, "threshold": f_thr})
         print(
             f"  폴드 {i+1}/{n_splits}: 학습={tr_end}개, "
-            f"검증={tr_end}~{val_end} ({step}개), AUC={auc:.4f}"
+            f"검증={tr_end}~{val_end} ({step}개), AUC={auc:.4f}  |  "
+            f"Thr={f_thr:.4f}  Prec={f_prec:.3f}  Rec={f_rec:.3f}"
         )
 
+    mean_prec = np.mean([m["precision"] for m in fold_metrics])
+    mean_rec = np.mean([m["recall"] for m in fold_metrics])
+    mean_thr = np.mean([m["threshold"] for m in fold_metrics])
     print(f"\n  Walk-Forward 평균 AUC: {np.mean(aucs):.4f} ± {np.std(aucs):.4f}")
+    print(f"  평균 Precision: {mean_prec:.3f}  |  평균 Recall: {mean_rec:.3f}  |  평균 Threshold: {mean_thr:.4f}")
     print(f"  폴드별: {[round(a, 4) for a in aucs]}")
 
 

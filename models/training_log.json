@@ -401,5 +401,30 @@
       "reg_lambda": 0.80039
     },
     "weight_scale": 0.718348
+  },
+  {
+    "date": "2026-03-03T00:39:05.427160",
+    "backend": "lgbm",
+    "auc": 0.9436,
+    "best_threshold": 0.3041,
+    "best_precision": 0.467,
+    "best_recall": 0.269,
+    "samples": 1524,
+    "features": 23,
+    "time_weight_decay": 0.5,
+    "model_path": "models/lgbm_filter.pkl",
+    "tuned_params_path": "models/active_lgbm_params.json",
+    "lgbm_params": {
+      "n_estimators": 221,
+      "learning_rate": 0.031072,
+      "max_depth": 5,
+      "num_leaves": 20,
+      "min_child_samples": 39,
+      "subsample": 0.83244,
+      "colsample_bytree": 0.526349,
+      "reg_alpha": 0.062177,
+      "reg_lambda": 0.082872
+    },
+    "weight_scale": 1.431662
   }
 ]
