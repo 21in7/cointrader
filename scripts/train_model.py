@@ -151,16 +151,17 @@ def _load_lgbm_params(tuned_params_path: str | None) -> tuple[dict, float]:
     반환: (lgbm_params, weight_scale)
     """
     lgbm_params: dict = {
-        "n_estimators":      500,
-        "learning_rate":     0.05,
-        "num_leaves":        31,
-        "min_child_samples": 15,
-        "subsample":         0.8,
-        "colsample_bytree":  0.8,
-        "reg_alpha":         0.05,
-        "reg_lambda":        0.1,
+        "n_estimators":      434,
+        "learning_rate":     0.123659,
+        "max_depth":         6,
+        "num_leaves":        14,
+        "min_child_samples": 10,
+        "subsample":         0.929062,
+        "colsample_bytree":  0.946330,
+        "reg_alpha":         0.573971,
+        "reg_lambda":        0.000157,
     }
-    weight_scale = 1.0
+    weight_scale = 1.783105
 
     if tuned_params_path:
         with open(tuned_params_path, "r", encoding="utf-8") as f:
