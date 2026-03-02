@@ -25,12 +25,12 @@ def test_build_features_with_btc_eth_has_21_features():
     btc_df = _make_df(10, base_price=50000.0)
     eth_df = _make_df(10, base_price=3000.0)
     features = build_features(xrp_df, "LONG", btc_df=btc_df, eth_df=eth_df)
-    assert len(features) == 21
+    assert len(features) == 23
 
 def test_build_features_without_btc_eth_has_13_features():
     xrp_df = _make_df(10, base_price=1.0)
     features = build_features(xrp_df, "LONG")
-    assert len(features) == 13
+    assert len(features) == 15
 
 def test_build_features_btc_ret_1_correct():
     xrp_df = _make_df(10, base_price=1.0)
@@ -111,3 +111,30 @@ def test_side_encoding():
     short_feat = build_features(df_ind, signal="SHORT")
     assert long_feat["side"] == 1
     assert short_feat["side"] == 0
+
+
+@pytest.fixture
+def sample_df_with_indicators():
+    from src.indicators import Indicators
+    df = make_df(100)
+    ind = Indicators(df)
+    return ind.calculate_all()
+
+
+def test_build_features_uses_provided_oi_funding(sample_df_with_indicators):
+    """oi_change, funding_rate 파라미터가 제공되면 실제 값이 피처에 반영된다."""
+    feat = build_features(
+        sample_df_with_indicators,
+        signal="LONG",
+        oi_change=0.05,
+        funding_rate=0.0002,
+    )
+    assert feat["oi_change"] == pytest.approx(0.05)
+    assert feat["funding_rate"] == pytest.approx(0.0002)
+
+
+def test_build_features_defaults_to_zero_when_not_provided(sample_df_with_indicators):
+    """oi_change, funding_rate 파라미터 미제공 시 0.0으로 채워진다."""
+    feat = build_features(sample_df_with_indicators, signal="LONG")
+    assert feat["oi_change"] == pytest.approx(0.0)
+    assert feat["funding_rate"] == pytest.approx(0.0)

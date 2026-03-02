@@ -34,11 +34,14 @@ def build_features(
     signal: str,
     btc_df: pd.DataFrame | None = None,
     eth_df: pd.DataFrame | None = None,
+    oi_change: float | None = None,
+    funding_rate: float | None = None,
 ) -> pd.Series:
     """
     기술 지표가 계산된 DataFrame의 마지막 행에서 ML 피처를 추출한다.
-    btc_df, eth_df가 제공되면 21개 피처를, 없으면 13개 피처를 반환한다.
+    btc_df, eth_df가 제공되면 23개 피처를, 없으면 15개 피처를 반환한다.
     signal: "LONG" | "SHORT"
+    oi_change, funding_rate: 실제 값이 제공되면 사용, 없으면 0.0으로 채운다.
     """
     last = df.iloc[-1]
     close = last["close"]
@@ -127,8 +130,8 @@ def build_features(
             "xrp_eth_rs": float(_calc_rs(ret_1, eth_ret_1)),
         })
 
-    # 실시간에서는 OI/펀딩비를 수집하지 않으므로 0으로 채워 학습 피처(23개)와 일치시킨다
-    base.setdefault("oi_change", 0.0)
-    base.setdefault("funding_rate", 0.0)
+    # 실시간에서 실제 값이 제공되면 사용, 없으면 0으로 채운다
+    base["oi_change"]    = float(oi_change)    if oi_change    is not None else 0.0
+    base["funding_rate"] = float(funding_rate) if funding_rate is not None else 0.0
 
     return pd.Series(base)
