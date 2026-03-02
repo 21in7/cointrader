@@ -146,9 +146,16 @@ def generate_dataset(df: pd.DataFrame, n_jobs: int | None = None) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
+ACTIVE_PARAMS_PATH = Path("models/active_lgbm_params.json")
+
+
 def _load_lgbm_params(tuned_params_path: str | None) -> tuple[dict, float]:
     """기본 LightGBM 파라미터를 반환하고, 튜닝 JSON이 주어지면 덮어쓴다.
-    반환: (lgbm_params, weight_scale)
+
+    우선순위:
+      1. --tuned-params 명시적 인자
+      2. models/active_lgbm_params.json (Optuna가 자동 갱신)
+      3. 코드 내 하드코딩 기본값 (fallback)
     """
     lgbm_params: dict = {
         "n_estimators":      434,
@@ -163,15 +170,23 @@ def _load_lgbm_params(tuned_params_path: str | None) -> tuple[dict, float]:
     }
     weight_scale = 1.783105
 
-    if tuned_params_path:
-        with open(tuned_params_path, "r", encoding="utf-8") as f:
+    # 명시적 인자가 없으면 active 파일 자동 탐색
+    resolved_path = tuned_params_path or (
+        str(ACTIVE_PARAMS_PATH) if ACTIVE_PARAMS_PATH.exists() else None
+    )
+
+    if resolved_path:
+        with open(resolved_path, "r", encoding="utf-8") as f:
             tune_data = json.load(f)
         best_params = dict(tune_data["best_trial"]["params"])
         weight_scale = float(best_params.pop("weight_scale", 1.0))
         lgbm_params.update(best_params)
-        print(f"\n[Optuna] 튜닝 파라미터 로드: {tuned_params_path}")
+        source = "명시적 인자" if tuned_params_path else "active 파일 자동 로드"
+        print(f"\n[Optuna] 튜닝 파라미터 로드 ({source}): {resolved_path}")
         print(f"[Optuna] 적용 파라미터: {lgbm_params}")
         print(f"[Optuna] weight_scale: {weight_scale}\n")
+    else:
+        print("[Optuna] active 파일 없음 → 코드 내 기본 파라미터 사용\n")
 
     return lgbm_params, weight_scale
 

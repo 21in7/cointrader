@@ -7,6 +7,8 @@ logs/
 .venv/
 venv/
 models/*.pkl
+models/*.onnx
+models/tune_results_*.json
 data/*.parquet
 .worktrees/
 .DS_Store

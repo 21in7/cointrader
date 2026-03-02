@@ -217,19 +217,30 @@ def measure_baseline(
     n_splits: int,
     train_ratio: float,
 ) -> tuple[float, list[float]]:
-    """train_model.py의 현재 고정 파라미터로 베이스라인 AUC를 측정한다."""
-    baseline_params = {
-        "n_estimators":     500,
-        "learning_rate":    0.05,
-        "max_depth":        -1,   # train_model.py는 max_depth 미설정
-        "num_leaves":       31,
-        "min_child_samples": 15,
-        "subsample":        0.8,
-        "colsample_bytree": 0.8,
-        "reg_alpha":        0.05,
-        "reg_lambda":       0.1,
-    }
-    print("베이스라인 측정 중 (현재 train_model.py 고정 파라미터)...")
+    """현재 실전 파라미터(active 파일 또는 하드코딩 기본값)로 베이스라인 AUC를 측정한다."""
+    active_path = Path("models/active_lgbm_params.json")
+
+    if active_path.exists():
+        with open(active_path, "r", encoding="utf-8") as f:
+            tune_data = json.load(f)
+        best_params = dict(tune_data["best_trial"]["params"])
+        best_params.pop("weight_scale", None)
+        baseline_params = best_params
+        print(f"베이스라인 측정 중 (active 파일: {active_path})...")
+    else:
+        baseline_params = {
+            "n_estimators":      434,
+            "learning_rate":     0.123659,
+            "max_depth":         6,
+            "num_leaves":        14,
+            "min_child_samples": 10,
+            "subsample":         0.929062,
+            "colsample_bytree":  0.946330,
+            "reg_alpha":         0.573971,
+            "reg_lambda":        0.000157,
+        }
+        print("베이스라인 측정 중 (active 파일 없음 → 코드 내 기본 파라미터)...")
+
     return _walk_forward_cv(X, y, w, baseline_params, n_splits=n_splits, train_ratio=train_ratio)
 
 
@@ -422,6 +433,19 @@ def main():
     # 4. 결과 저장 및 출력
     output_path = save_results(study, baseline_auc, baseline_folds, elapsed, args.data)
     print_report(study, baseline_auc, baseline_folds, elapsed, output_path)
+
+    # 5. 성능 개선 시 active 파일 자동 갱신
+    import shutil
+    active_path = Path("models/active_lgbm_params.json")
+    if not args.no_baseline and study.best_value > baseline_auc:
+        shutil.copy(output_path, active_path)
+        improvement = study.best_value - baseline_auc
+        print(f"[MLOps] AUC +{improvement:.4f} 개선 → {active_path} 자동 갱신 완료")
+        print(f"[MLOps] 다음 train_model.py 실행 시 새 파라미터가 자동 적용됩니다.\n")
+    elif args.no_baseline:
+        print("[MLOps] --no-baseline 모드: 성능 비교 없이 active 파일 유지\n")
+    else:
+        print(f"[MLOps] 성능 개선 없음 (Best={study.best_value:.4f} ≤ Baseline={baseline_auc:.4f}) → active 파일 유지\n")
 
 
 if __name__ == "__main__":
