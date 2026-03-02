@@ -11,6 +11,7 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / M
 - **모델 핫리로드**: 캔들마다 모델 파일 mtime을 감지해 변경 시 자동 리로드 (봇 재시작 불필요)
 - **멀티심볼 스트림**: XRP/BTC/ETH 3개 심볼을 단일 Combined WebSocket으로 수신, BTC·ETH 상관관계 피처 활용
 - **23개 ML 피처**: XRP 기술 지표 13개 + BTC/ETH 수익률·상대강도 8개 + OI 변화율·펀딩비 2개 (캔들 마감 시 실시간 조회, 실패 시 0으로 폴백)
+- **점진적 OI 데이터 축적 (Upsert)**: 바이낸스 OI 히스토리 API는 최근 30일치만 제공. `fetch_history.py` 실행 시 기존 parquet의 `oi_change/funding_rate=0` 구간을 신규 값으로 채워 학습 데이터 품질을 점진적으로 개선
 - **실시간 OI/펀딩비 조회**: 캔들 마감마다 `get_open_interest()` / `get_funding_rate()`를 비동기 병렬 조회하여 ML 피처에 전달. 이전 캔들 대비 OI 변화율로 변환하여 train-serve skew 해소
 - **ATR 기반 손절/익절**: 변동성에 따라 동적으로 SL/TP 계산 (1.5× / 3.0× ATR)
 - **Algo Order API 지원**: 계정 설정에 따라 STOP_MARKET/TAKE_PROFIT_MARKET 주문을 `/fapi/v1/algoOrder` 엔드포인트로 자동 전송 (오류 코드 -4120 대응)
@@ -43,7 +44,7 @@ cointrader/
 │   ├── notifier.py            # Discord 웹훅 알림
 │   └── logger_setup.py        # Loguru 로거 설정
 ├── scripts/
-│   ├── fetch_history.py       # 과거 데이터 수집 (XRP/BTC/ETH + OI/펀딩비)
+│   ├── fetch_history.py       # 과거 데이터 수집 (XRP/BTC/ETH + OI/펀딩비, Upsert 지원)
 │   ├── train_model.py         # LightGBM 모델 학습 (CPU)
 │   ├── train_mlx_model.py     # MLX 신경망 학습 (Apple Silicon GPU)
 │   ├── train_and_deploy.sh    # 전체 파이프라인 (수집 → 학습 → LXC 배포)
@@ -105,6 +106,22 @@ docker compose logs -f cointrader
 
 봇은 모델 파일이 없으면 ML 필터 없이 동작합니다. 최초 실행 전 또는 수동 재학습 시 아래 순서로 진행합니다.
 
+### 최초 실행 (데이터 초기화)
+
+`data/combined_15m.parquet`가 없을 때 1회만 실행합니다. 이후 매일 크론탭이 `train_and_deploy.sh`를 실행하면 35일치 신규 데이터가 자동으로 Upsert됩니다.
+
+```bash
+# 최초 1회: 1년치 캔들 전체 수집 (OI/펀딩비는 최근 30일만 실제 값, 나머지 0.0)
+python scripts/fetch_history.py \
+    --symbols XRPUSDT BTCUSDT ETHUSDT \
+    --interval 15m \
+    --days 365 \
+    --no-upsert \
+    --output data/combined_15m.parquet
+```
+
+> 이후 매일 `train_and_deploy.sh` 실행 시 35일치 신규 데이터를 기존 parquet에 Upsert하여 OI/펀딩비 0.0 구간이 야금야금 채워집니다. 시간이 지날수록 실제 OI/펀딩비 값이 있는 학습 구간이 1달 → 2달 → 반년으로 늘어납니다.
+
 ### 전체 파이프라인 (권장)
 
 맥미니에서 데이터 수집 → 학습 → LXC 배포까지 한 번에 실행합니다.
@@ -127,11 +144,20 @@ bash scripts/train_and_deploy.sh lgbm 0
 
 ```bash
 # 1. 과거 데이터 수집 (XRP/BTC/ETH 3심볼, 15분봉, 1년치 + OI/펀딩비)
+# 기본값: Upsert 활성화 — 기존 parquet의 oi_change/funding_rate=0 구간을 실제 값으로 채움
 python scripts/fetch_history.py \
     --symbols XRPUSDT BTCUSDT ETHUSDT \
     --interval 15m \
     --days 365 \
     --output data/combined_15m.parquet
+
+# 기존 파일을 완전히 덮어쓰려면 --no-upsert 플래그 사용
+python scripts/fetch_history.py \
+    --symbols XRPUSDT BTCUSDT ETHUSDT \
+    --interval 15m \
+    --days 365 \
+    --output data/combined_15m.parquet \
+    --no-upsert
 
 # 2-A. LightGBM 모델 학습 (CPU)
 python scripts/train_model.py --data data/combined_15m.parquet
