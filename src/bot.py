@@ -41,6 +41,8 @@ class TradingBot:
         if position is not None:
             amt = float(position["positionAmt"])
             self.current_trade_side = "LONG" if amt > 0 else "SHORT"
+            self._entry_price = float(position["entryPrice"])
+            self._entry_quantity = abs(amt)
             entry = float(position["entryPrice"])
             logger.info(
                 f"기존 포지션 복구: {self.current_trade_side} | "
