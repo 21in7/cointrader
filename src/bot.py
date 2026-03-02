@@ -22,6 +22,7 @@ class TradingBot:
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
         self._entry_price: float | None = None
         self._entry_quantity: float | None = None
+        self._is_reentering: bool = False  # _close_and_reenter 중 콜백 상태 초기화 방지
         self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
         self.stream = MultiSymbolStream(
             symbols=[config.symbol, "BTCUSDT", "ETHUSDT"],
@@ -225,6 +226,10 @@ class TradingBot:
             f"순수익={net_pnl:+.4f}, 차이={diff:+.4f} USDT"
         )
 
+        # _close_and_reenter 중이면 신규 포지션 상태를 덮어쓰지 않는다
+        if self._is_reentering:
+            return
+
         # Flat 상태로 초기화
         self.current_trade_side = None
         self._entry_price = None
@@ -249,23 +254,28 @@ class TradingBot:
         funding_rate: float = 0.0,
     ) -> None:
         """기존 포지션을 청산하고, ML 필터 통과 시 반대 방향으로 즉시 재진입한다."""
-        await self._close_position(position)
+        # 재진입 플래그: User Data Stream 콜백이 신규 포지션 상태를 초기화하지 않도록 보호
+        self._is_reentering = True
+        try:
+            await self._close_position(position)
 
-        if not self.risk.can_open_new_position():
-            logger.info("최대 포지션 수 도달 — 재진입 건너뜀")
-            return
-
-        if self.ml_filter.is_model_loaded():
-            features = build_features(
-                df, signal,
-                btc_df=btc_df, eth_df=eth_df,
-                oi_change=oi_change, funding_rate=funding_rate,
-            )
-            if not self.ml_filter.should_enter(features):
-                logger.info(f"ML 필터 차단: {signal} 재진입 무시")
+            if not self.risk.can_open_new_position():
+                logger.info("최대 포지션 수 도달 — 재진입 건너뜀")
                 return
 
-        await self._open_position(signal, df)
+            if self.ml_filter.is_model_loaded():
+                features = build_features(
+                    df, signal,
+                    btc_df=btc_df, eth_df=eth_df,
+                    oi_change=oi_change, funding_rate=funding_rate,
+                )
+                if not self.ml_filter.should_enter(features):
+                    logger.info(f"ML 필터 차단: {signal} 재진입 무시")
+                    return
+
+            await self._open_position(signal, df)
+        finally:
+            self._is_reentering = False
 
     async def run(self):
         logger.info(f"봇 시작: {self.config.symbol}, 레버리지 {self.config.leverage}x")
@@ -275,7 +285,7 @@ class TradingBot:
         logger.info(f"기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")
 
         user_stream = UserDataStream(
-            exchange=self.exchange,
+            symbol=self.config.symbol,
             on_order_filled=self._on_position_closed,
         )
 
