@@ -210,22 +210,42 @@ def test_rs_zero_denominator():
         "xrp_btc_rs가 전부 nan이면 안 됨"
 
 
-def test_hold_negative_labels_are_all_zero(sample_df):
+@pytest.fixture
+def signal_producing_df():
+    """시그널이 반드시 발생하는 더미 데이터. 높은 변동성 + 거래량 급증."""
+    rng = np.random.default_rng(7)
+    n = 800
+    trend = np.linspace(1.5, 3.0, n)
+    noise = np.cumsum(rng.normal(0, 0.04, n))
+    close = np.clip(trend + noise, 0.01, None)
+    high  = close * (1 + rng.uniform(0, 0.015, n))
+    low   = close * (1 - rng.uniform(0, 0.015, n))
+    volume = rng.uniform(1e6, 3e6, n)
+    volume[::30] *= 3.0  # 30봉마다 거래량 급증
+    return pd.DataFrame({
+        "open": close, "high": high, "low": low,
+        "close": close, "volume": volume,
+    })
+
+
+def test_hold_negative_labels_are_all_zero(signal_producing_df):
     """HOLD negative 샘플의 label은 전부 0이어야 한다."""
-    result = generate_dataset_vectorized(sample_df, negative_ratio=3)
-    if len(result) > 0 and "source" in result.columns:
-        hold_neg = result[result["source"] == "hold_negative"]
-        if len(hold_neg) > 0:
-            assert (hold_neg["label"] == 0).all(), \
-                f"HOLD negative 중 label != 0인 샘플 존재: {hold_neg['label'].value_counts().to_dict()}"
+    result = generate_dataset_vectorized(signal_producing_df, negative_ratio=3)
+    assert len(result) > 0, "시그널이 발생하지 않아 테스트 불가"
+    assert "source" in result.columns
+    hold_neg = result[result["source"] == "hold_negative"]
+    assert len(hold_neg) > 0, "HOLD negative 샘플이 0개"
+    assert (hold_neg["label"] == 0).all(), \
+        f"HOLD negative 중 label != 0인 샘플 존재: {hold_neg['label'].value_counts().to_dict()}"
 
 
-def test_signal_samples_preserved_after_sampling(sample_df):
+def test_signal_samples_preserved_after_sampling(signal_producing_df):
     """계층적 샘플링 후 source='signal' 샘플이 하나도 버려지지 않아야 한다."""
-    result_signal_only = generate_dataset_vectorized(sample_df, negative_ratio=0)
-    result_with_hold   = generate_dataset_vectorized(sample_df, negative_ratio=3)
+    result_signal_only = generate_dataset_vectorized(signal_producing_df, negative_ratio=0)
+    result_with_hold   = generate_dataset_vectorized(signal_producing_df, negative_ratio=3)
 
-    if len(result_with_hold) > 0 and "source" in result_with_hold.columns:
-        signal_count = (result_with_hold["source"] == "signal").sum()
-        assert signal_count == len(result_signal_only), \
-            f"Signal 샘플 손실: 원본={len(result_signal_only)}, 유지={signal_count}"
+    assert len(result_signal_only) > 0, "시그널이 발생하지 않아 테스트 불가"
+    assert "source" in result_with_hold.columns
+    signal_count = (result_with_hold["source"] == "signal").sum()
+    assert signal_count == len(result_signal_only), \
+        f"Signal 샘플 손실: 원본={len(result_signal_only)}, 유지={signal_count}"

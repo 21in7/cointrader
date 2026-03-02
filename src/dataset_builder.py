@@ -366,6 +366,13 @@ def generate_dataset_vectorized(
 ) -> pd.DataFrame:
     """
     전체 시계열을 1회 계산해 학습 데이터셋을 생성한다.
+    기존 generate_dataset()의 drop-in 대체제.
+    btc_df, eth_df가 제공되면 21개 피처로 확장한다.
+
+    time_weight_decay: 지수 감쇠 강도. 0이면 균등 가중치.
+        양수일수록 최신 샘플에 더 높은 가중치를 부여한다.
+        예) 2.0 → 최신 샘플이 가장 오래된 샘플보다 e^2 ≈ 7.4배 높은 가중치.
+        결과 DataFrame에 'sample_weight' 컬럼으로 포함된다.
 
     negative_ratio: 시그널 샘플 대비 HOLD negative 샘플 비율.
         0이면 기존 동작 (시그널만). 5면 시그널의 5배만큼 HOLD 샘플 추가.
