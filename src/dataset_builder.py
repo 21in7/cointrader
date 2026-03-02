@@ -362,16 +362,13 @@ def generate_dataset_vectorized(
     btc_df: pd.DataFrame | None = None,
     eth_df: pd.DataFrame | None = None,
     time_weight_decay: float = 0.0,
+    negative_ratio: int = 0,
 ) -> pd.DataFrame:
     """
     전체 시계열을 1회 계산해 학습 데이터셋을 생성한다.
-    기존 generate_dataset()의 drop-in 대체제.
-    btc_df, eth_df가 제공되면 21개 피처로 확장한다.
 
-    time_weight_decay: 지수 감쇠 강도. 0이면 균등 가중치.
-        양수일수록 최신 샘플에 더 높은 가중치를 부여한다.
-        예) 2.0 → 최신 샘플이 가장 오래된 샘플보다 e^2 ≈ 7.4배 높은 가중치.
-        결과 DataFrame에 'sample_weight' 컬럼으로 포함된다.
+    negative_ratio: 시그널 샘플 대비 HOLD negative 샘플 비율.
+        0이면 기존 동작 (시그널만). 5면 시그널의 5배만큼 HOLD 샘플 추가.
     """
     print("  [1/3] 전체 시계열 지표 계산 (1회)...")
     d = _calc_indicators(df)
@@ -381,41 +378,77 @@ def generate_dataset_vectorized(
     feat_all   = _calc_features_vectorized(d, signal_arr, btc_df=btc_df, eth_df=eth_df)
 
     # 신호 발생 + NaN 없음 + 미래 데이터 충분한 인덱스만
-    # oi_change/funding_rate는 선택적 피처(컬럼 없으면 전체 nan)이므로 NaN 체크에서 제외
     OPTIONAL_COLS = {"oi_change", "funding_rate"}
     available_cols_for_nan_check = [
         c for c in FEATURE_COLS
         if c in feat_all.columns and c not in OPTIONAL_COLS
     ]
-    valid_rows = (
-        (signal_arr != "HOLD") &
+    base_valid = (
         (~feat_all[available_cols_for_nan_check].isna().any(axis=1).values) &
         (np.arange(len(d)) >= WARMUP) &
         (np.arange(len(d)) < len(d) - LOOKAHEAD)
     )
-    sig_idx = np.where(valid_rows)[0]
+
+    # --- 시그널 캔들 (기존 로직) ---
+    sig_valid = base_valid & (signal_arr != "HOLD")
+    sig_idx = np.where(sig_valid)[0]
     print(f"  신호 발생 인덱스: {len(sig_idx):,}개")
 
     print("  [3/3] 레이블 계산...")
     labels, valid_mask = _calc_labels_vectorized(d, feat_all, sig_idx)
 
-    final_idx = sig_idx[valid_mask]
-    # btc_df/eth_df 제공 여부에 따라 실제 존재하는 피처 컬럼만 선택
+    final_sig_idx = sig_idx[valid_mask]
     available_feature_cols = [c for c in FEATURE_COLS if c in feat_all.columns]
-    feat_final = feat_all.iloc[final_idx][available_feature_cols].copy()
-    feat_final["label"] = labels
+    feat_signal = feat_all.iloc[final_sig_idx][available_feature_cols].copy()
+    feat_signal["label"] = labels
+    feat_signal["source"] = "signal"
 
-    # 시간 가중치: 오래된 샘플 → 낮은 가중치, 최신 샘플 → 높은 가중치
+    # --- HOLD negative 캔들 ---
+    if negative_ratio > 0 and len(final_sig_idx) > 0:
+        hold_valid = base_valid & (signal_arr == "HOLD")
+        hold_candidates = np.where(hold_valid)[0]
+        n_neg = min(len(hold_candidates), len(final_sig_idx) * negative_ratio)
+
+        if n_neg > 0:
+            rng = np.random.default_rng(42)
+            hold_idx = rng.choice(hold_candidates, size=n_neg, replace=False)
+            hold_idx = np.sort(hold_idx)
+
+            feat_hold = feat_all.iloc[hold_idx][available_feature_cols].copy()
+            feat_hold["label"] = 0
+            feat_hold["source"] = "hold_negative"
+
+            # HOLD 캔들은 시그널이 없으므로 side를 랜덤 할당 (50:50)
+            sides = rng.integers(0, 2, size=len(feat_hold)).astype(np.float32)
+            feat_hold["side"] = sides
+
+            print(f"  HOLD negative 추가: {len(feat_hold):,}개 "
+                  f"(비율 1:{negative_ratio})")
+
+            feat_final = pd.concat([feat_signal, feat_hold], ignore_index=True)
+            # 시간 순서 복원 (원본 인덱스 기반 정렬)
+            original_order = np.concatenate([final_sig_idx, hold_idx])
+            sort_order = np.argsort(original_order)
+            feat_final = feat_final.iloc[sort_order].reset_index(drop=True)
+        else:
+            feat_final = feat_signal.reset_index(drop=True)
+    else:
+        feat_final = feat_signal.reset_index(drop=True)
+
+    # 시간 가중치
     n = len(feat_final)
     if time_weight_decay > 0 and n > 1:
         weights = np.exp(time_weight_decay * np.linspace(0.0, 1.0, n)).astype(np.float32)
-        weights /= weights.mean()  # 평균 1로 정규화해 학습률 스케일 유지
+        weights /= weights.mean()
         print(f"  시간 가중치 적용 (decay={time_weight_decay}): "
               f"min={weights.min():.3f}, max={weights.max():.3f}")
     else:
         weights = np.ones(n, dtype=np.float32)
 
-    feat_final = feat_final.reset_index(drop=True)
     feat_final["sample_weight"] = weights
+
+    total_sig = (feat_final["source"] == "signal").sum() if "source" in feat_final.columns else len(feat_final)
+    total_hold = (feat_final["source"] == "hold_negative").sum() if "source" in feat_final.columns else 0
+    print(f"  최종 데이터셋: {n:,}개 (시그널={total_sig:,}, HOLD={total_hold:,})")
 
     return feat_final

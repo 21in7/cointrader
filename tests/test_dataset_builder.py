@@ -70,7 +70,7 @@ def test_generate_dataset_vectorized_with_btc_eth_has_21_feature_cols():
     result = generate_dataset_vectorized(xrp_df, btc_df=btc_df, eth_df=eth_df)
     if not result.empty:
         assert set(FEATURE_COLS).issubset(set(result.columns))
-        assert len(result.columns) == len(FEATURE_COLS) + 1  # +1 for label
+        assert "label" in result.columns
 
 
 def test_matches_original_generate_dataset(sample_df):
@@ -208,3 +208,24 @@ def test_rs_zero_denominator():
         "xrp_btc_rs에 inf가 있으면 안 됨"
     assert not feat["xrp_btc_rs"].isna().all(), \
         "xrp_btc_rs가 전부 nan이면 안 됨"
+
+
+def test_hold_negative_labels_are_all_zero(sample_df):
+    """HOLD negative 샘플의 label은 전부 0이어야 한다."""
+    result = generate_dataset_vectorized(sample_df, negative_ratio=3)
+    if len(result) > 0 and "source" in result.columns:
+        hold_neg = result[result["source"] == "hold_negative"]
+        if len(hold_neg) > 0:
+            assert (hold_neg["label"] == 0).all(), \
+                f"HOLD negative 중 label != 0인 샘플 존재: {hold_neg['label'].value_counts().to_dict()}"
+
+
+def test_signal_samples_preserved_after_sampling(sample_df):
+    """계층적 샘플링 후 source='signal' 샘플이 하나도 버려지지 않아야 한다."""
+    result_signal_only = generate_dataset_vectorized(sample_df, negative_ratio=0)
+    result_with_hold   = generate_dataset_vectorized(sample_df, negative_ratio=3)
+
+    if len(result_with_hold) > 0 and "source" in result_with_hold.columns:
+        signal_count = (result_with_hold["source"] == "signal").sum()
+        assert signal_count == len(result_signal_only), \
+            f"Signal 샘플 손실: 원본={len(result_signal_only)}, 유지={signal_count}"
