@@ -22,7 +22,7 @@ from sklearn.metrics import roc_auc_score, classification_report
 from src.indicators import Indicators
 from src.ml_features import build_features, FEATURE_COLS
 from src.label_builder import build_labels
-from src.dataset_builder import generate_dataset_vectorized
+from src.dataset_builder import generate_dataset_vectorized, stratified_undersample
 
 def _cgroup_cpu_count() -> int:
     """cgroup v1/v2 쿼터를 읽어 실제 할당된 CPU 수를 반환한다.
@@ -214,7 +214,11 @@ def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str
     df = df_raw[base_cols].copy()
 
     print("데이터셋 생성 중...")
-    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay)
+    dataset = generate_dataset_vectorized(
+        df, btc_df=btc_df, eth_df=eth_df,
+        time_weight_decay=time_weight_decay,
+        negative_ratio=5,
+    )
 
     if dataset.empty or "label" not in dataset.columns:
         raise ValueError(f"데이터셋 생성 실패: 샘플 0개. 위 오류 메시지를 확인하세요.")
@@ -229,6 +233,7 @@ def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str
     X = dataset[actual_feature_cols]
     y = dataset["label"]
     w = dataset["sample_weight"].values
+    source = dataset["source"].values if "source" in dataset.columns else np.full(len(X), "signal")
 
     split = int(len(X) * 0.8)
     X_train, X_val = X.iloc[:split], X.iloc[split:]
@@ -238,21 +243,19 @@ def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str
     lgbm_params, weight_scale = _load_lgbm_params(tuned_params_path)
     w_train = (w[:split] * weight_scale).astype(np.float32)
 
-    # --- 클래스 불균형 처리: 언더샘플링 (시간 가중치 인덱스 보존) ---
-    pos_idx = np.where(y_train == 1)[0]
-    neg_idx = np.where(y_train == 0)[0]
-
-    if len(neg_idx) > len(pos_idx):
-        np.random.seed(42)
-        neg_idx = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
-
-    balanced_idx = np.sort(np.concatenate([pos_idx, neg_idx]))  # 시간 순서 유지
+    # --- 계층적 샘플링: signal 전수 유지, HOLD negative만 양성 수 만큼 ---
+    source_train = source[:split]
+    balanced_idx = stratified_undersample(y_train.values, source_train, seed=42)
 
     X_train = X_train.iloc[balanced_idx]
     y_train = y_train.iloc[balanced_idx]
     w_train = w_train[balanced_idx]
 
-    print(f"\n언더샘플링 후 학습 데이터: {len(X_train)}개 (양성={y_train.sum()}, 음성={(y_train==0).sum()})")
+    sig_count = (source_train[balanced_idx] == "signal").sum()
+    hold_count = (source_train[balanced_idx] == "hold_negative").sum()
+    print(f"\n계층적 샘플링 후 학습 데이터: {len(X_train)}개 "
+          f"(Signal={sig_count}, HOLD={hold_count}, "
+          f"양성={int(y_train.sum())}, 음성={int((y_train==0).sum())})")
     print(f"검증 데이터: {len(X_val)}개 (양성={int(y_val.sum())}, 음성={int((y_val==0).sum())})")
     # ---------------------------------------------------------------
 
@@ -354,13 +357,16 @@ def walk_forward_auc(
     df = df_raw[base_cols].copy()
 
     dataset = generate_dataset_vectorized(
-        df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay
+        df, btc_df=btc_df, eth_df=eth_df,
+        time_weight_decay=time_weight_decay,
+        negative_ratio=5,
     )
     actual_feature_cols = [c for c in FEATURE_COLS if c in dataset.columns]
     X = dataset[actual_feature_cols].values
     y = dataset["label"].values
     w = dataset["sample_weight"].values
     n = len(dataset)
+    source = dataset["source"].values if "source" in dataset.columns else np.full(n, "signal")
 
     lgbm_params, weight_scale = _load_lgbm_params(tuned_params_path)
     w = (w * weight_scale).astype(np.float32)
@@ -378,12 +384,8 @@ def walk_forward_auc(
         X_tr, y_tr, w_tr = X[:tr_end], y[:tr_end], w[:tr_end]
         X_val, y_val = X[tr_end:val_end], y[tr_end:val_end]
 
-        pos_idx = np.where(y_tr == 1)[0]
-        neg_idx = np.where(y_tr == 0)[0]
-        if len(neg_idx) > len(pos_idx):
-            np.random.seed(42)
-            neg_idx = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
-        idx = np.sort(np.concatenate([pos_idx, neg_idx]))
+        source_tr = source[:tr_end]
+        idx = stratified_undersample(y_tr, source_tr, seed=42)
 
         model = lgb.LGBMClassifier(**lgbm_params, random_state=42, verbose=-1)
         with warnings.catch_warnings():
