@@ -306,6 +306,11 @@ def upsert_parquet(path: "Path | str", new_df: pd.DataFrame) -> pd.DataFrame:
     if len(new_only_idx) > 0:
         existing = pd.concat([existing, new_df.loc[new_only_idx]])
 
+    # 컬럼 불일치(기존 parquet에 oi_change/funding_rate 없음)로 생긴 NaN을 0으로 채움
+    for col in UPSERT_COLS:
+        if col in existing.columns:
+            existing[col] = existing[col].fillna(0.0)
+
     return existing.sort_index()
 
 
