@@ -184,25 +184,12 @@ class TradingBot:
         )
 
     async def _close_position(self, position: dict):
+        """포지션 청산 주문만 실행한다. PnL 기록/알림은 _on_position_closed 콜백이 담당."""
         amt = abs(float(position["positionAmt"]))
         side = "SELL" if float(position["positionAmt"]) > 0 else "BUY"
-        pos_side = "LONG" if side == "SELL" else "SHORT"
         await self.exchange.cancel_all_orders()
         await self.exchange.place_order(side=side, quantity=amt, reduce_only=True)
-
-        entry = float(position["entryPrice"])
-        mark  = float(position["markPrice"])
-        pnl   = (mark - entry) * amt if side == "SELL" else (entry - mark) * amt
-
-        self.notifier.notify_close(
-            symbol=self.config.symbol,
-            side=pos_side,
-            exit_price=mark,
-            pnl=pnl,
-        )
-        self.risk.record_pnl(pnl)
-        self.current_trade_side = None
-        logger.success(f"포지션 청산: PnL={pnl:.4f} USDT")
+        logger.info(f"청산 주문 전송 완료 (side={side}, qty={amt})")
 
     async def _close_and_reenter(
         self,
