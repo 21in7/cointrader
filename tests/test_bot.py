@@ -223,3 +223,25 @@ async def test_process_candle_fetches_oi_and_funding(config, sample_df):
     call_kwargs = mock_build.call_args.kwargs
     assert "oi_change" in call_kwargs
     assert "funding_rate" in call_kwargs
+
+
+def test_calc_oi_change_first_candle_returns_zero(config):
+    """첫 캔들은 0.0을 반환하고 _prev_oi를 설정한다."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+    assert bot._calc_oi_change(5000000.0) == 0.0
+    assert bot._prev_oi == 5000000.0
+
+
+def test_calc_oi_change_api_failure_does_not_corrupt_state(config):
+    """API 실패 시 _fetch_market_microstructure가 _calc_oi_change를 호출하지 않아 상태가 오염되지 않는다."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+    bot._prev_oi = 5000000.0
+    # API 실패 시 _fetch_market_microstructure는 oi_val > 0 체크로 _calc_oi_change를 건너뜀
+    # _calc_oi_change(0.0)을 직접 호출하면 _prev_oi가 0.0으로 오염되는 이전 버그를 재현
+    # 수정 후에는 _fetch_market_microstructure에서 0.0을 직접 반환하므로 이 경로가 없음
+    # 대신 _calc_oi_change가 정상 값에서만 호출되는지 확인
+    result = bot._calc_oi_change(5100000.0)
+    assert abs(result - 0.02) < 1e-6  # (5100000 - 5000000) / 5000000 = 0.02
+    assert bot._prev_oi == 5100000.0

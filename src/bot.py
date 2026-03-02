@@ -58,11 +58,13 @@ class TradingBot:
             self.exchange.get_funding_rate(),
             return_exceptions=True,
         )
-        oi_float = float(oi_val) if isinstance(oi_val, (int, float)) else 0.0
+        # None(API 실패) 또는 Exception이면 _calc_oi_change를 호출하지 않고 0.0 반환
+        if isinstance(oi_val, (int, float)) and oi_val > 0:
+            oi_change = self._calc_oi_change(float(oi_val))
+        else:
+            oi_change = 0.0
         fr_float = float(fr_val) if isinstance(fr_val, (int, float)) else 0.0
-
-        oi_change = self._calc_oi_change(oi_float)
-        logger.debug(f"OI={oi_float:.0f}, OI변화율={oi_change:.6f}, 펀딩비={fr_float:.6f}")
+        logger.debug(f"OI={oi_val}, OI변화율={oi_change:.6f}, 펀딩비={fr_float:.6f}")
         return oi_change, fr_float
 
     def _calc_oi_change(self, current_oi: float) -> float:
