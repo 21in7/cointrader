@@ -144,5 +144,5 @@ class BinanceFuturesClient:
                     symbol=self.config.symbol
                 ),
             )
-        except BinanceAPIException as e:
+        except Exception as e:
             logger.warning(f"Algo 주문 전체 취소 실패 (무시): {e}")
