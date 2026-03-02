@@ -17,6 +17,7 @@ def config():
         "RISK_PER_TRADE": "0.02",
         "NOTION_TOKEN": "secret_test",
         "NOTION_DATABASE_ID": "db_test",
+        "DISCORD_WEBHOOK_URL": "",
     })
     return Config()
 

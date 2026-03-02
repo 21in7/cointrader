@@ -547,7 +547,7 @@ sequenceDiagram
 
 ### 5.1 테스트 파일 구성
 
-`tests/` 폴더에 13개 테스트 파일, 총 **83개의 테스트 케이스**가 작성되어 있습니다.
+`tests/` 폴더에 12개 테스트 파일, 총 **81개의 테스트 케이스**가 작성되어 있습니다.
 
 ```bash
 pytest tests/ -v          # 전체 실행
@@ -570,10 +570,8 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `test_mlx_filter.py` | `src/mlx_filter.py` | 5 | GPU 디바이스 확인, 학습 전 예측 형태, 학습 후 유효 확률, NaN 피처 처리, 저장/로드 후 동일 예측 |
 | `test_fetch_history.py` | `scripts/fetch_history.py` | 5 | OI=0 구간 Upsert, 신규 행 추가, 기존 비0값 보존, 파일 없을 때 신규 반환, 타임스탬프 오름차순 정렬 |
 | `test_config.py` | `src/config.py` | 2 | 환경변수 로드, 동적 증거금 파라미터 로드 |
-| `test_database.py` | `src/database.py` | 2 | 거래 저장, 거래 청산 업데이트 (Notion API Mock) |
 
-> `test_mlx_filter.py`는 Apple Silicon(`mlx` 패키지)이 없는 환경에서 자동 스킵됩니다.  
-> `test_database.py`는 현재 미사용 모듈(`src/database.py`)을 대상으로 하며, 실제 운영 경로와 무관합니다.
+> `test_mlx_filter.py`는 Apple Silicon(`mlx` 패키지)이 없는 환경에서 자동 스킵됩니다.
 
 ### 5.3 커버리지 매트릭스
 
@@ -581,21 +579,21 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 
 | 기능 | 단위 테스트 | 통합 수준 테스트 | 비고 |
 |------|:----------:|:--------------:|------|
-| 기술 지표 계산 (RSI/MACD/BB/EMA/StochRSI) | ✅ | ✅ | `test_indicators` + `test_ml_features` |
+| 기술 지표 계산 (RSI/MACD/BB/EMA/StochRSI/ADX) | ✅ | ✅ | `test_indicators` + `test_ml_features` + `test_dataset_builder` |
 | 신호 생성 (가중치 합산) | ✅ | ✅ | `test_indicators` + `test_dataset_builder` |
-| ADX 횡보장 필터 (ADX < 25 차단) | ✅ | — | `test_indicators` (ADX 컬럼·차단·NaN 3개) |
-| ML 피처 추출 (23개) | ✅ | — | `test_ml_features` |
+| ADX 횡보장 필터 (ADX < 25 차단) | ✅ | ✅ | `test_indicators` + `test_dataset_builder` (`_calc_signals` 실제 호출) |
+| ML 피처 추출 (23개) | ✅ | ✅ | `test_ml_features` + `test_dataset_builder` (`_calc_features_vectorized` 실제 호출) |
 | ML 필터 추론 (임계값 판단) | ✅ | — | `test_ml_filter` |
 | MLX 신경망 학습/저장/로드 | ✅ | — | `test_mlx_filter` (Apple Silicon 전용) |
-| 레이블 생성 (SL/TP 룩어헤드) | ✅ | — | `test_label_builder` |
+| 레이블 생성 (SL/TP 룩어헤드) | ✅ | ✅ | `test_label_builder` + `test_dataset_builder` (전체 파이프라인 실제 호출) |
 | 벡터화 데이터셋 빌더 | ✅ | ✅ | `test_dataset_builder` |
 | 동적 증거금 비율 계산 | ✅ | — | `test_risk_manager` |
 | 일일 손실 한도 제어 | ✅ | — | `test_risk_manager` |
 | 포지션 수량 계산 | ✅ | — | `test_exchange` |
-| OI/펀딩비 API 조회 (정상/오류) | ✅ | — | `test_exchange` |
+| OI/펀딩비 API 조회 (정상/오류) | ✅ | ✅ | `test_exchange` + `test_bot` (`process_candle` → OI/펀딩비 → `build_features` 전달) |
 | 반대 시그널 재진입 흐름 | ✅ | ✅ | `test_bot` |
-| ML 차단 시 재진입 스킵 | ✅ | — | `test_bot` |
-| OI 변화율 계산 (API 실패 폴백) | ✅ | — | `test_bot` |
+| ML 차단 시 재진입 스킵 | ✅ | ✅ | `test_bot` (`_close_and_reenter` → ML 판단 → 스킵 전체 흐름) |
+| OI 변화율 계산 (API 실패 폴백) | ✅ | ✅ | `test_bot` (`process_candle` → OI 조회 → `_calc_oi_change` 흐름) |
 | 캔들 버퍼 관리 및 프리로드 | ✅ | — | `test_data_stream` |
 | Parquet Upsert (OI=0 보충) | ✅ | — | `test_fetch_history` |
 | User Data Stream TP/SL 감지 | ❌ | — | 미작성 (실제 WebSocket 의존) |

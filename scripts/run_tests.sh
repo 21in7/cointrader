@@ -21,6 +21,5 @@ fi
 cd "$PROJECT_ROOT"
 
 python -m pytest tests/ \
-    --ignore=tests/test_database.py \
     -v \
     "$@"
