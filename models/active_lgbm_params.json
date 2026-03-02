@@ -1,17 +1,17 @@
 {
-  "timestamp": "2026-03-02T14:47:49.965976",
+  "timestamp": "2026-03-02T15:01:10.464634",
   "data_path": "data/combined_15m.parquet",
   "n_trials_total": 50,
   "n_trials_complete": 44,
-  "elapsed_sec": 70.8,
+  "elapsed_sec": 71.3,
   "baseline": {
-    "auc": 0.580343,
+    "auc": 0.579164,
     "fold_aucs": [
-      0.657825,
-      0.568182,
-      0.456471,
-      0.548148,
-      0.671088
+      0.689655,
+      0.540909,
+      0.484706,
+      0.533333,
+      0.647215
     ]
   },
   "best_trial": {

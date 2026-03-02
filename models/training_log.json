@@ -276,5 +276,30 @@
     "features": 23,
     "time_weight_decay": 2.0,
     "model_path": "models/lgbm_filter.pkl"
+  },
+  {
+    "date": "2026-03-02T14:51:09.101738",
+    "backend": "lgbm",
+    "auc": 0.5361,
+    "best_threshold": 0.5308,
+    "best_precision": 0.406,
+    "best_recall": 0.371,
+    "samples": 533,
+    "features": 23,
+    "time_weight_decay": 2.0,
+    "model_path": "models/lgbm_filter.pkl",
+    "tuned_params_path": "models/tune_results_20260302_144749.json",
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157,
+      "max_depth": 6
+    },
+    "weight_scale": 1.783105
   }
 ]
