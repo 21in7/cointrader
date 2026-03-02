@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import joblib
 import numpy as np
@@ -34,6 +35,7 @@ class MLFilter:
         lgbm_path: str = str(LGBM_MODEL_PATH),
         threshold: float = 0.60,
     ):
+        self._disabled = os.environ.get("NO_ML_FILTER", "").lower() in ("1", "true", "yes")
         self._onnx_path = Path(onnx_path)
         self._lgbm_path = Path(lgbm_path)
         self._threshold = threshold
@@ -41,7 +43,11 @@ class MLFilter:
         self._lgbm_model = None
         self._loaded_onnx_mtime: float = 0.0
         self._loaded_lgbm_mtime: float = 0.0
-        self._try_load()
+
+        if self._disabled:
+            logger.info("ML 필터 비활성화 모드 (NO_ML_FILTER=true) → 모든 신호 허용")
+        else:
+            self._try_load()
 
     def _try_load(self):
         # 로드 여부와 무관하게 두 파일의 현재 mtime을 항상 기록한다.
@@ -121,8 +127,11 @@ class MLFilter:
     def should_enter(self, features: pd.Series) -> bool:
         """
         확률 >= threshold 이면 True (진입 허용).
-        모델 없으면 True 반환 (폴백).
+        NO_ML_FILTER=true 이거나 모델 없으면 True 반환 (폴백).
         """
+        if self._disabled:
+            logger.debug("ML 필터 비활성화 모드 → 진입 허용")
+            return True
         if not self.is_model_loaded():
             return True
         try:

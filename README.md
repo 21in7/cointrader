@@ -2,6 +2,8 @@
 
 Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / MLX 신경망)를 결합하여 XRPUSDT(기본) 선물 포지션을 자동으로 진입·청산하며, Discord로 실시간 알림을 전송합니다.
 
+> **아키텍처 문서**: 코드 구조, 레이어별 역할, MLOps 파이프라인, 동작 시나리오를 상세히 설명한 [ARCHITECTURE.md](./ARCHITECTURE.md)를 참고하세요.
+
 ---
 
 ## 주요 기능
@@ -266,6 +268,7 @@ pytest tests/ -v
 | `MARGIN_MAX_RATIO` | `0.50` | 최대 증거금 비율 (잔고 대비 50%) |
 | `MARGIN_MIN_RATIO` | `0.20` | 최소 증거금 비율 (잔고 대비 20%) |
 | `MARGIN_DECAY_RATE` | `0.0006` | 잔고 증가 시 증거금 비율 감소 속도 |
+| `NO_ML_FILTER` | — | `true`/`1`/`yes` 설정 시 ML 필터 완전 비활성화 — 모델 로드 없이 모든 신호 허용 |
 
 ---
 
