@@ -172,3 +172,31 @@ class BinanceFuturesClient:
         except Exception as e:
             logger.warning(f"펀딩비 조회 실패 (무시): {e}")
             return None
+
+    async def create_listen_key(self) -> str:
+        """POST /fapi/v1/listenKey — listenKey 신규 발급"""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: self.client.futures_stream_get_listen_key(),
+        )
+        return result
+
+    async def keepalive_listen_key(self, listen_key: str) -> None:
+        """PUT /fapi/v1/listenKey — listenKey 만료 연장 (60분 → 리셋)"""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: self.client.futures_stream_keepalive(listenKey=listen_key),
+        )
+
+    async def delete_listen_key(self, listen_key: str) -> None:
+        """DELETE /fapi/v1/listenKey — listenKey 삭제 (정상 종료 시)"""
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_stream_close(listenKey=listen_key),
+            )
+        except Exception as e:
+            logger.warning(f"listenKey 삭제 실패 (무시): {e}")
