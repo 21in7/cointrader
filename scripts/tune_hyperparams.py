@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Optuna를 사용한 LightGBM 하이퍼파라미터 자동 탐색.
 
