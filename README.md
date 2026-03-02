@@ -48,6 +48,7 @@ cointrader/
 │   ├── train_model.py         # LightGBM 모델 학습 (CPU)
 │   ├── train_mlx_model.py     # MLX 신경망 학습 (Apple Silicon GPU)
 │   ├── train_and_deploy.sh    # 전체 파이프라인 (수집 → 학습 → LXC 배포)
+│   ├── tune_hyperparams.py    # Optuna 하이퍼파라미터 자동 탐색 (수동 트리거)
 │   ├── deploy_model.sh        # 모델 파일 LXC 서버 전송
 │   └── run_tests.sh           # 전체 테스트 실행
 ├── models/                    # 학습된 모델 저장 (.pkl / .onnx)
@@ -159,6 +160,27 @@ bash scripts/deploy_model.sh mlx    # MLX (ONNX)
 학습된 모델은 `models/lgbm_filter.pkl` (LightGBM) 또는 `models/mlx_filter.weights.onnx` (MLX) 에 저장됩니다.
 
 > **모델 핫리로드**: 봇이 실행 중일 때 모델 파일을 교체하면, 다음 캔들 마감 시 자동으로 감지해 리로드합니다. 봇 재시작이 필요 없습니다.
+
+### 하이퍼파라미터 자동 튜닝 (Optuna)
+
+봇 성능이 저하되거나 데이터가 충분히 축적되었을 때 Optuna로 최적 LightGBM 파라미터를 탐색합니다.
+결과를 확인하고 직접 승인한 후 재학습에 반영하는 **수동 트리거** 방식입니다.
+
+```bash
+# 기본 실행 (50 trials, 5폴드 Walk-Forward, ~30분)
+python scripts/tune_hyperparams.py
+
+# 빠른 테스트 (10 trials, 3폴드, ~5분)
+python scripts/tune_hyperparams.py --trials 10 --folds 3
+
+# 베이스라인 측정 없이 탐색만
+python scripts/tune_hyperparams.py --no-baseline
+```
+
+결과는 `models/tune_results_YYYYMMDD_HHMMSS.json`에 저장됩니다.
+콘솔에 Best Params, 베이스라인 대비 개선폭, 폴드별 AUC를 출력하므로 직접 확인 후 판단하세요.
+
+> **주의**: Optuna가 찾은 파라미터는 과적합 위험이 있습니다. Best Params를 `train_model.py`에 반영하기 전에 반드시 폴드별 AUC 분산과 개선폭을 검토하세요.
 
 ### Apple Silicon GPU 가속 학습 (M1/M2/M3/M4)
 
