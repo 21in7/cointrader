@@ -11,6 +11,7 @@ FEATURE_COLS = [
     # 시장 미시구조: OI 변화율(z-score), 펀딩비(z-score)
     # parquet에 oi_change/funding_rate 컬럼이 없으면 dataset_builder에서 0으로 채움
     "oi_change", "funding_rate",
+    "adx",
 ]
 
 
@@ -39,7 +40,7 @@ def build_features(
 ) -> pd.Series:
     """
     기술 지표가 계산된 DataFrame의 마지막 행에서 ML 피처를 추출한다.
-    btc_df, eth_df가 제공되면 23개 피처를, 없으면 15개 피처를 반환한다.
+    btc_df, eth_df가 제공되면 24개 피처를, 없으면 16개 피처를 반환한다.
     signal: "LONG" | "SHORT"
     oi_change, funding_rate: 실제 값이 제공되면 사용, 없으면 0.0으로 채운다.
     """
@@ -133,5 +134,6 @@ def build_features(
     # 실시간에서 실제 값이 제공되면 사용, 없으면 0으로 채운다
     base["oi_change"]    = float(oi_change)    if oi_change    is not None else 0.0
     base["funding_rate"] = float(funding_rate) if funding_rate is not None else 0.0
+    base["adx"] = float(last.get("adx", 0))
 
     return pd.Series(base)

@@ -60,11 +60,10 @@ class Indicators:
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
-        # ADX 횡보장 필터: ADX < 25이면 추세 부재로 판단하여 진입 차단
+        # ADX 로깅 (ML 피처로 위임, 하드필터 제거)
         adx = last.get("adx", None)
-        if adx is not None and not pd.isna(adx) and adx < 25:
-            logger.debug(f"ADX 필터: {adx:.1f} < 25 — HOLD")
-            return "HOLD"
+        if adx is not None and not pd.isna(adx):
+            logger.debug(f"ADX: {adx:.1f}")
 
         long_signals  = 0
         short_signals = 0

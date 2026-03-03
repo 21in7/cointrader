@@ -54,21 +54,21 @@ def test_adx_column_exists(sample_df):
     assert (valid >= 0).all()
 
 
-def test_adx_filter_blocks_low_adx(sample_df):
-    """ADX < 25일 때 가중치와 무관하게 HOLD를 반환해야 한다."""
+def test_adx_low_does_not_block_signal(sample_df):
+    """ADX < 25여도 시그널이 차단되지 않는다 (ML에 위임)."""
     ind = Indicators(sample_df)
     df = ind.calculate_all()
     # 강한 LONG 신호가 나오도록 지표 조작
-    df.loc[df.index[-1], "rsi"] = 20              # RSI 과매도 → +1
-    df.loc[df.index[-2], "macd"] = -1             # MACD 골든크로스 → +2
+    df.loc[df.index[-1], "rsi"] = 20
+    df.loc[df.index[-2], "macd"] = -1
     df.loc[df.index[-2], "macd_signal"] = 0
     df.loc[df.index[-1], "macd"] = 1
     df.loc[df.index[-1], "macd_signal"] = 0
-    df.loc[df.index[-1], "volume"] = df.loc[df.index[-1], "vol_ma20"] * 2  # 거래량 서지
-    # ADX를 강제로 낮은 값으로 설정
+    df.loc[df.index[-1], "volume"] = df.loc[df.index[-1], "vol_ma20"] * 2
     df["adx"] = 15.0
     signal = ind.get_signal(df)
-    assert signal == "HOLD"
+    # ADX 낮아도 지표 조건 충족 시 LONG 반환 (ML이 최종 판단)
+    assert signal == "LONG"
 
 
 def test_adx_nan_falls_through(sample_df):
