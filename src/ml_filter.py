@@ -33,7 +33,7 @@ class MLFilter:
         self,
         onnx_path: str = str(ONNX_MODEL_PATH),
         lgbm_path: str = str(LGBM_MODEL_PATH),
-        threshold: float = 0.60,
+        threshold: float = 0.55,
     ):
         self._disabled = os.environ.get("NO_ML_FILTER", "").lower() in ("1", "true", "yes")
         self._onnx_path = Path(onnx_path)

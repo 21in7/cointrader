@@ -18,7 +18,7 @@ class TradingBot:
         self.exchange = BinanceFuturesClient(config)
         self.notifier = DiscordNotifier(config.discord_webhook_url)
         self.risk = RiskManager(config)
-        self.ml_filter = MLFilter()
+        self.ml_filter = MLFilter(threshold=config.ml_threshold)
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
         self._entry_price: float | None = None
         self._entry_quantity: float | None = None

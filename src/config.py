@@ -19,6 +19,7 @@ class Config:
     margin_max_ratio: float = 0.50
     margin_min_ratio: float = 0.20
     margin_decay_rate: float = 0.0006
+    ml_threshold: float = 0.55
 
     def __post_init__(self):
         self.api_key = os.getenv("BINANCE_API_KEY", "")
@@ -29,3 +30,4 @@ class Config:
         self.margin_max_ratio = float(os.getenv("MARGIN_MAX_RATIO", "0.50"))
         self.margin_min_ratio = float(os.getenv("MARGIN_MIN_RATIO", "0.20"))
         self.margin_decay_rate = float(os.getenv("MARGIN_DECAY_RATE", "0.0006"))
+        self.ml_threshold = float(os.getenv("ML_THRESHOLD", "0.55"))

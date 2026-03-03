@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        REGISTRY      = '10.1.10.28:3000'
+        REGISTRY      = 'git.gihyeon.com'
         IMAGE_NAME    = 'gihyeon/cointrader'
         IMAGE_TAG     = "${env.BUILD_NUMBER}"
         FULL_IMAGE    = "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
@@ -29,7 +29,7 @@ pipeline {
             steps {
                 git branch: 'main',
                     credentialsId: 'gitea-cred',
-                    url: 'http://10.1.10.28:3000/gihyeon/cointrader.git'
+                    url: 'https://git.gihyeon.com/gihyeon/cointrader.git'
             }
         }
 
