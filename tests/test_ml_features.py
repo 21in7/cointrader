@@ -17,20 +17,21 @@ def _make_df(n=10, base_price=1.0):
         "ema21": closes, "ema50": closes, "atr": [0.01] * n,
         "stoch_k": [50.0] * n, "stoch_d": [50.0] * n,
         "vol_ma20": [1000.0] * n,
+        "adx": [20.0] * n,
     })
 
 
-def test_build_features_with_btc_eth_has_21_features():
+def test_build_features_with_btc_eth_has_24_features():
     xrp_df = _make_df(10, base_price=1.0)
     btc_df = _make_df(10, base_price=50000.0)
     eth_df = _make_df(10, base_price=3000.0)
     features = build_features(xrp_df, "LONG", btc_df=btc_df, eth_df=eth_df)
-    assert len(features) == 23
+    assert len(features) == 24
 
-def test_build_features_without_btc_eth_has_13_features():
+def test_build_features_without_btc_eth_has_16_features():
     xrp_df = _make_df(10, base_price=1.0)
     features = build_features(xrp_df, "LONG")
-    assert len(features) == 15
+    assert len(features) == 16
 
 def test_build_features_btc_ret_1_correct():
     xrp_df = _make_df(10, base_price=1.0)
@@ -49,9 +50,9 @@ def test_build_features_rs_zero_when_btc_ret_zero():
     features = build_features(xrp_df, "LONG", btc_df=btc_df, eth_df=eth_df)
     assert features["xrp_btc_rs"] == 0.0
 
-def test_feature_cols_has_23_items():
+def test_feature_cols_has_24_items():
     from src.ml_features import FEATURE_COLS
-    assert len(FEATURE_COLS) == 23
+    assert len(FEATURE_COLS) == 24
 
 
 def make_df(n=100):
