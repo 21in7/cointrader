@@ -269,6 +269,7 @@ pytest tests/ -v
 | `MARGIN_MIN_RATIO` | `0.20` | 최소 증거금 비율 (잔고 대비 20%) |
 | `MARGIN_DECAY_RATE` | `0.0006` | 잔고 증가 시 증거금 비율 감소 속도 |
 | `NO_ML_FILTER` | — | `true`/`1`/`yes` 설정 시 ML 필터 완전 비활성화 — 모델 로드 없이 모든 신호 허용 |
+| `ML_THRESHOLD` | `0.55` | ML 필터 예측 확률 임계값 — 이 값 이상이어야 진입 허용 (기본값 0.55) |
 
 ---
 
