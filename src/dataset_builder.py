@@ -116,12 +116,6 @@ def _calc_signals(d: pd.DataFrame) -> np.ndarray:
     # 둘 다 해당하면 HOLD (충돌 방지)
     signal_arr[long_enter & short_enter] = "HOLD"
 
-    # ADX 횡보장 필터: ADX < 25이면 추세 부재로 판단하여 진입 차단
-    if "adx" in d.columns:
-        adx = d["adx"].values
-        low_adx = (~np.isnan(adx)) & (adx < 25)
-        signal_arr[low_adx] = "HOLD"
-
     return signal_arr
 
 
@@ -212,6 +206,10 @@ def _calc_features_vectorized(
 
     side = np.where(signal_arr == "LONG", 1.0, 0.0).astype(np.float32)
 
+    # ADX (ML 피처로 제공 — rolling z-score 정규화)
+    adx_raw = d["adx"].values.astype(np.float64) if "adx" in d.columns else np.zeros(len(d), dtype=np.float64)
+    adx_z = _rolling_zscore(adx_raw)
+
     result = pd.DataFrame({
         "rsi":             rsi.values.astype(np.float32),
         "macd_hist":       macd_hist.values.astype(np.float32),
@@ -226,6 +224,7 @@ def _calc_features_vectorized(
         "ret_5":           ret_5_z,
         "signal_strength": strength,
         "side":            side,
+        "adx":             adx_z,
         "_signal":         signal_arr,   # 레이블 계산용 임시 컬럼
     }, index=d.index)
 
