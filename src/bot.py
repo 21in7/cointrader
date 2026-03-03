@@ -235,6 +235,26 @@ class TradingBot:
         self._entry_price = None
         self._entry_quantity = None
 
+    _MONITOR_INTERVAL = 300  # 5분
+
+    async def _position_monitor(self):
+        """포지션 보유 중일 때 5분마다 현재가·미실현 PnL을 로깅한다."""
+        while True:
+            await asyncio.sleep(self._MONITOR_INTERVAL)
+            if self.current_trade_side is None:
+                continue
+            price = self.stream.latest_price
+            if price is None or self._entry_price is None or self._entry_quantity is None:
+                continue
+            pnl = self._calc_estimated_pnl(price)
+            cost = self._entry_price * self._entry_quantity
+            pnl_pct = (pnl / cost * 100) if cost > 0 else 0.0
+            logger.info(
+                f"포지션 모니터 | {self.current_trade_side} | "
+                f"현재가={price:.4f} | PnL={pnl:+.4f} USDT ({pnl_pct:+.2f}%) | "
+                f"진입가={self._entry_price:.4f}"
+            )
+
     async def _close_position(self, position: dict):
         """포지션 청산 주문만 실행한다. PnL 기록/알림은 _on_position_closed 콜백이 담당."""
         amt = abs(float(position["positionAmt"]))
@@ -298,4 +318,5 @@ class TradingBot:
                 api_key=self.config.api_key,
                 api_secret=self.config.api_secret,
             ),
+            self._position_monitor(),
         )

@@ -116,6 +116,8 @@ class MultiSymbolStream:
         }
         # 첫 번째 심볼이 주 심볼 (XRP)
         self.primary_symbol = self.symbols[0]
+        # 미종료 캔들 포함 최신 가격 (포지션 모니터링용)
+        self.latest_price: float | None = None
 
     def parse_kline(self, msg: dict) -> dict:
         k = msg["k"]
@@ -141,6 +143,9 @@ class MultiSymbolStream:
 
         symbol = data["s"].lower()
         candle = self.parse_kline(data)
+
+        if symbol == self.primary_symbol:
+            self.latest_price = candle["close"]
 
         if candle["is_closed"] and symbol in self.buffers:
             self.buffers[symbol].append(candle)

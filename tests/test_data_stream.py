@@ -85,6 +85,48 @@ async def test_callback_called_on_closed_candle():
 
 
 @pytest.mark.asyncio
+async def test_multi_symbol_stream_updates_latest_price_on_every_message():
+    """미종료 캔들 메시지도 primary symbol의 latest_price를 업데이트해야 한다."""
+    stream = MultiSymbolStream(
+        symbols=["XRPUSDT", "BTCUSDT", "ETHUSDT"],
+        interval="15m",
+    )
+    assert stream.latest_price is None
+
+    # 미종료 캔들 메시지 (is_closed=False)
+    msg = {
+        "stream": "xrpusdt@kline_15m",
+        "data": {
+            "e": "kline",
+            "s": "XRPUSDT",
+            "k": {
+                "t": 1700000000000, "o": "0.5", "h": "0.51",
+                "l": "0.49", "c": "0.5050", "v": "100000", "x": False,
+            },
+        },
+    }
+    await stream.handle_message(msg)
+    assert stream.latest_price == 0.5050
+    # 미종료 캔들은 버퍼에 추가되지 않아야 한다
+    assert len(stream.buffers["xrpusdt"]) == 0
+
+    # BTC 메시지는 latest_price를 변경하지 않아야 한다
+    btc_msg = {
+        "stream": "btcusdt@kline_15m",
+        "data": {
+            "e": "kline",
+            "s": "BTCUSDT",
+            "k": {
+                "t": 1700000000000, "o": "60000", "h": "61000",
+                "l": "59000", "c": "60500", "v": "500", "x": False,
+            },
+        },
+    }
+    await stream.handle_message(btc_msg)
+    assert stream.latest_price == 0.5050  # 변경 없음
+
+
+@pytest.mark.asyncio
 async def test_preload_history_fills_buffer():
     stream = KlineStream(symbol="XRPUSDT", interval="1m", buffer_size=200)
 

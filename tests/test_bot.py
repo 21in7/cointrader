@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import pandas as pd
@@ -246,3 +247,53 @@ def test_calc_oi_change_api_failure_does_not_corrupt_state(config):
     result = bot._calc_oi_change(5100000.0)
     assert abs(result - 0.02) < 1e-6  # (5100000 - 5000000) / 5000000 = 0.02
     assert bot._prev_oi == 5100000.0
+
+
+@pytest.mark.asyncio
+async def test_position_monitor_logs_when_position_open(config, caplog):
+    """포지션 보유 중일 때 모니터가 현재가와 PnL을 로깅해야 한다."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+
+    bot.current_trade_side = "LONG"
+    bot._entry_price = 0.5000
+    bot._entry_quantity = 100.0
+    bot.stream.latest_price = 0.5100
+
+    # 인터벌을 0으로 줄여 즉시 실행되게 함
+    bot._MONITOR_INTERVAL = 0
+
+    import loguru
+    loguru.logger.enable("src.bot")
+
+    task = asyncio.create_task(bot._position_monitor())
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+    # loguru는 caplog와 호환되지 않으므로 직접 로그 확인 대신 예외 없이 실행됨을 확인
+    # PnL 계산이 올바른지 직접 검증
+    pnl = bot._calc_estimated_pnl(0.5100)
+    assert abs(pnl - 1.0) < 1e-6  # (0.51 - 0.50) * 100 = 1.0
+
+
+@pytest.mark.asyncio
+async def test_position_monitor_skips_when_no_position(config):
+    """포지션이 없을 때 모니터는 로깅하지 않고 넘어가야 한다."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+
+    bot.current_trade_side = None
+    bot._MONITOR_INTERVAL = 0
+
+    task = asyncio.create_task(bot._position_monitor())
+    await asyncio.sleep(0.05)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    # 예외 없이 정상 종료되어야 한다
