@@ -21,17 +21,17 @@ def _make_df(n=10, base_price=1.0):
     })
 
 
-def test_build_features_with_btc_eth_has_24_features():
+def test_build_features_with_btc_eth_has_26_features():
     xrp_df = _make_df(10, base_price=1.0)
     btc_df = _make_df(10, base_price=50000.0)
     eth_df = _make_df(10, base_price=3000.0)
     features = build_features(xrp_df, "LONG", btc_df=btc_df, eth_df=eth_df)
-    assert len(features) == 24
+    assert len(features) == 26
 
-def test_build_features_without_btc_eth_has_16_features():
+def test_build_features_without_btc_eth_has_18_features():
     xrp_df = _make_df(10, base_price=1.0)
     features = build_features(xrp_df, "LONG")
-    assert len(features) == 16
+    assert len(features) == 18
 
 def test_build_features_btc_ret_1_correct():
     xrp_df = _make_df(10, base_price=1.0)
@@ -51,8 +51,9 @@ def test_build_features_rs_zero_when_btc_ret_zero():
     assert features["xrp_btc_rs"] == 0.0
 
 def test_feature_cols_has_24_items():
+    """Legacy test — updated to 26 after OI derived features added."""
     from src.ml_features import FEATURE_COLS
-    assert len(FEATURE_COLS) == 24
+    assert len(FEATURE_COLS) == 26
 
 
 def make_df(n=100):
@@ -139,3 +140,31 @@ def test_build_features_defaults_to_zero_when_not_provided(sample_df_with_indica
     feat = build_features(sample_df_with_indicators, signal="LONG")
     assert feat["oi_change"] == pytest.approx(0.0)
     assert feat["funding_rate"] == pytest.approx(0.0)
+
+
+def test_feature_cols_has_26_items():
+    from src.ml_features import FEATURE_COLS
+    assert len(FEATURE_COLS) == 26
+
+
+def test_build_features_with_oi_derived_params():
+    """oi_change_ma5, oi_price_spread 파라미터가 피처에 반영된다."""
+    xrp_df = _make_df(10, base_price=1.0)
+    btc_df = _make_df(10, base_price=50000.0)
+    eth_df = _make_df(10, base_price=3000.0)
+    features = build_features(
+        xrp_df, "LONG",
+        btc_df=btc_df, eth_df=eth_df,
+        oi_change=0.05, funding_rate=0.0002,
+        oi_change_ma5=0.03, oi_price_spread=0.12,
+    )
+    assert features["oi_change_ma5"] == pytest.approx(0.03)
+    assert features["oi_price_spread"] == pytest.approx(0.12)
+
+
+def test_build_features_oi_derived_defaults_to_zero():
+    """oi_change_ma5, oi_price_spread 미제공 시 0.0으로 채워진다."""
+    xrp_df = _make_df(10, base_price=1.0)
+    features = build_features(xrp_df, "LONG")
+    assert features["oi_change_ma5"] == pytest.approx(0.0)
+    assert features["oi_price_spread"] == pytest.approx(0.0)
