@@ -116,4 +116,5 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-03 | `position-monitor-logging` | Completed |
 | 2026-03-03 | `adx-ml-feature-migration` (design + plan) | Completed |
 | 2026-03-03 | `optuna-precision-objective-plan` | Pending |
-| 2026-03-04 | `oi-derived-features` (design + plan) | In Progress |
+| 2026-03-03 | `demo-1m-125x` (design + plan) | In Progress |
+| 2026-03-04 | `oi-derived-features` (design + plan) | Completed |
