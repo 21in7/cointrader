@@ -173,6 +173,30 @@ class BinanceFuturesClient:
             logger.warning(f"펀딩비 조회 실패 (무시): {e}")
             return None
 
+    async def get_oi_history(self, limit: int = 5) -> list[float]:
+        """최근 OI 변화율 히스토리를 조회한다 (봇 초기화용). 실패 시 빈 리스트."""
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_open_interest_hist(
+                    symbol=self.config.symbol, period="15m", limit=limit + 1,
+                ),
+            )
+            if len(result) < 2:
+                return []
+            oi_values = [float(r["sumOpenInterest"]) for r in result]
+            changes = []
+            for i in range(1, len(oi_values)):
+                if oi_values[i - 1] > 0:
+                    changes.append((oi_values[i] - oi_values[i - 1]) / oi_values[i - 1])
+                else:
+                    changes.append(0.0)
+            return changes
+        except Exception as e:
+            logger.warning(f"OI 히스토리 조회 실패 (무시): {e}")
+            return []
+
     async def create_listen_key(self) -> str:
         """POST /fapi/v1/listenKey — listenKey 신규 발급"""
         loop = asyncio.get_event_loop()

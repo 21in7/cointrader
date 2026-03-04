@@ -227,6 +227,42 @@ async def test_process_candle_fetches_oi_and_funding(config, sample_df):
     assert "funding_rate" in call_kwargs
 
 
+def test_bot_has_oi_history_deque(config):
+    """봇이 OI 히스토리 deque를 가져야 한다."""
+    from collections import deque
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+    assert isinstance(bot._oi_history, deque)
+    assert bot._oi_history.maxlen == 5
+
+
+@pytest.mark.asyncio
+async def test_init_oi_history_fills_deque(config):
+    """_init_oi_history가 deque를 채워야 한다."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+    bot.exchange = AsyncMock()
+    bot.exchange.get_oi_history = AsyncMock(return_value=[0.01, -0.02, 0.03, -0.01, 0.02])
+    await bot._init_oi_history()
+    assert len(bot._oi_history) == 5
+
+
+@pytest.mark.asyncio
+async def test_fetch_microstructure_returns_4_tuple(config):
+    """_fetch_market_microstructure가 4-tuple을 반환해야 한다."""
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config)
+    bot.exchange = AsyncMock()
+    bot.exchange.get_open_interest = AsyncMock(return_value=5000000.0)
+    bot.exchange.get_funding_rate = AsyncMock(return_value=0.0001)
+    bot._prev_oi = 4900000.0
+    bot._oi_history.extend([0.01, -0.02, 0.03, -0.01])
+    bot._latest_ret_1 = 0.01
+
+    result = await bot._fetch_market_microstructure()
+    assert len(result) == 4
+
+
 def test_calc_oi_change_first_candle_returns_zero(config):
     """첫 캔들은 0.0을 반환하고 _prev_oi를 설정한다."""
     with patch("src.bot.BinanceFuturesClient"):
