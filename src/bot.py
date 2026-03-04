@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 import pandas as pd
 from loguru import logger
 from src.config import Config
@@ -24,6 +25,8 @@ class TradingBot:
         self._entry_quantity: float | None = None
         self._is_reentering: bool = False  # _close_and_reenter 중 콜백 상태 초기화 방지
         self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
+        self._oi_history: deque = deque(maxlen=5)
+        self._latest_ret_1: float = 0.0
         self.stream = MultiSymbolStream(
             symbols=[config.symbol, "BTCUSDT", "ETHUSDT"],
             interval="15m",
@@ -57,21 +60,43 @@ class TradingBot:
         else:
             logger.info("기존 포지션 없음 - 신규 진입 대기")
 
-    async def _fetch_market_microstructure(self) -> tuple[float, float]:
-        """OI 변화율과 펀딩비를 실시간으로 조회한다. 실패 시 0.0으로 폴백."""
+    async def _init_oi_history(self) -> None:
+        """봇 시작 시 최근 OI 변화율 히스토리를 조회하여 deque를 채운다."""
+        try:
+            changes = await self.exchange.get_oi_history(limit=5)
+            for c in changes:
+                self._oi_history.append(c)
+            if changes:
+                self._prev_oi = None
+            logger.info(f"OI 히스토리 초기화: {len(self._oi_history)}개")
+        except Exception as e:
+            logger.warning(f"OI 히스토리 초기화 실패 (무시): {e}")
+
+    async def _fetch_market_microstructure(self) -> tuple[float, float, float, float]:
+        """OI 변화율, 펀딩비, OI MA5, OI-가격 스프레드를 실시간으로 조회한다."""
         oi_val, fr_val = await asyncio.gather(
             self.exchange.get_open_interest(),
             self.exchange.get_funding_rate(),
             return_exceptions=True,
         )
-        # None(API 실패) 또는 Exception이면 _calc_oi_change를 호출하지 않고 0.0 반환
         if isinstance(oi_val, (int, float)) and oi_val > 0:
             oi_change = self._calc_oi_change(float(oi_val))
         else:
             oi_change = 0.0
         fr_float = float(fr_val) if isinstance(fr_val, (int, float)) else 0.0
-        logger.debug(f"OI={oi_val}, OI변화율={oi_change:.6f}, 펀딩비={fr_float:.6f}")
-        return oi_change, fr_float
+
+        # OI 히스토리 업데이트 및 MA5 계산
+        self._oi_history.append(oi_change)
+        oi_ma5 = sum(self._oi_history) / len(self._oi_history) if self._oi_history else 0.0
+
+        # OI-가격 스프레드
+        oi_price_spread = oi_change - self._latest_ret_1
+
+        logger.debug(
+            f"OI={oi_val}, OI변화율={oi_change:.6f}, 펀딩비={fr_float:.6f}, "
+            f"OI_MA5={oi_ma5:.6f}, OI_Price_Spread={oi_price_spread:.6f}"
+        )
+        return oi_change, fr_float, oi_ma5, oi_price_spread
 
     def _calc_oi_change(self, current_oi: float) -> float:
         """이전 OI 대비 변화율을 계산한다. 첫 캔들은 0.0 반환."""
@@ -85,8 +110,14 @@ class TradingBot:
     async def process_candle(self, df, btc_df=None, eth_df=None):
         self.ml_filter.check_and_reload()
 
+        # 가격 수익률 계산 (oi_price_spread용)
+        if len(df) >= 2:
+            prev_close = df["close"].iloc[-2]
+            curr_close = df["close"].iloc[-1]
+            self._latest_ret_1 = (curr_close - prev_close) / prev_close if prev_close != 0 else 0.0
+
         # 캔들 마감 시 OI/펀딩비 실시간 조회 (실패해도 0으로 폴백)
-        oi_change, funding_rate = await self._fetch_market_microstructure()
+        oi_change, funding_rate, oi_ma5, oi_price_spread = await self._fetch_market_microstructure()
 
         if not self.risk.is_trading_allowed():
             logger.warning("리스크 한도 초과 - 거래 중단")
@@ -111,6 +142,7 @@ class TradingBot:
                 df_with_indicators, signal,
                 btc_df=btc_df, eth_df=eth_df,
                 oi_change=oi_change, funding_rate=funding_rate,
+                oi_change_ma5=oi_ma5, oi_price_spread=oi_price_spread,
             )
             if self.ml_filter.is_model_loaded():
                 if not self.ml_filter.should_enter(features):
@@ -126,6 +158,7 @@ class TradingBot:
                     position, raw_signal, df_with_indicators,
                     btc_df=btc_df, eth_df=eth_df,
                     oi_change=oi_change, funding_rate=funding_rate,
+                    oi_change_ma5=oi_ma5, oi_price_spread=oi_price_spread,
                 )
 
     async def _open_position(self, signal: str, df):
@@ -272,6 +305,8 @@ class TradingBot:
         eth_df=None,
         oi_change: float = 0.0,
         funding_rate: float = 0.0,
+        oi_change_ma5: float = 0.0,
+        oi_price_spread: float = 0.0,
     ) -> None:
         """기존 포지션을 청산하고, ML 필터 통과 시 반대 방향으로 즉시 재진입한다."""
         # 재진입 플래그: User Data Stream 콜백이 신규 포지션 상태를 초기화하지 않도록 보호
@@ -288,6 +323,7 @@ class TradingBot:
                     df, signal,
                     btc_df=btc_df, eth_df=eth_df,
                     oi_change=oi_change, funding_rate=funding_rate,
+                    oi_change_ma5=oi_change_ma5, oi_price_spread=oi_price_spread,
                 )
                 if not self.ml_filter.should_enter(features):
                     logger.info(f"ML 필터 차단: {signal} 재진입 무시")
@@ -300,6 +336,7 @@ class TradingBot:
     async def run(self):
         logger.info(f"봇 시작: {self.config.symbol}, 레버리지 {self.config.leverage}x")
         await self._recover_position()
+        await self._init_oi_history()
         balance = await self.exchange.get_balance()
         self.risk.set_base_balance(balance)
         logger.info(f"기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")

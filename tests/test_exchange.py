@@ -113,3 +113,43 @@ async def test_get_funding_rate_error_returns_none(exchange):
     )
     result = await exchange.get_funding_rate()
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_oi_history_returns_changes(exchange):
+    """get_oi_history()가 OI 변화율 리스트를 반환하는지 확인."""
+    exchange.client.futures_open_interest_hist = MagicMock(
+        return_value=[
+            {"sumOpenInterest": "1000000"},
+            {"sumOpenInterest": "1010000"},
+            {"sumOpenInterest": "1005000"},
+            {"sumOpenInterest": "1020000"},
+            {"sumOpenInterest": "1015000"},
+            {"sumOpenInterest": "1030000"},
+        ]
+    )
+    result = await exchange.get_oi_history(limit=5)
+    assert len(result) == 5
+    assert isinstance(result[0], float)
+    # 첫 번째 변화율: (1010000 - 1000000) / 1000000 = 0.01
+    assert abs(result[0] - 0.01) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_get_oi_history_error_returns_empty(exchange):
+    """API 오류 시 빈 리스트 반환 확인."""
+    exchange.client.futures_open_interest_hist = MagicMock(
+        side_effect=Exception("API error")
+    )
+    result = await exchange.get_oi_history(limit=5)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_oi_history_insufficient_data_returns_empty(exchange):
+    """데이터가 부족하면 빈 리스트 반환 확인."""
+    exchange.client.futures_open_interest_hist = MagicMock(
+        return_value=[{"sumOpenInterest": "1000000"}]
+    )
+    result = await exchange.get_oi_history(limit=5)
+    assert result == []

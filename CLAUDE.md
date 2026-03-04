@@ -47,7 +47,7 @@ bash scripts/deploy_model.sh
 **5-layer data flow on each 15m candle close:**
 1. `src/data_stream.py` — Combined WebSocket for XRP/BTC/ETH, deque buffers (200 candles each)
 2. `src/indicators.py` — RSI, MACD, BB, EMA, StochRSI, ATR; weighted signal aggregation → LONG/SHORT/HOLD
-3. `src/ml_filter.py` + `src/ml_features.py` — 24-feature extraction (ADX 포함), ONNX priority > LightGBM fallback, threshold ≥ 0.55
+3. `src/ml_filter.py` + `src/ml_features.py` — 26-feature extraction (ADX + OI 파생 피처 포함), ONNX priority > LightGBM fallback, threshold ≥ 0.55
 4. `src/exchange.py` + `src/risk_manager.py` — Dynamic margin, MARKET orders with SL/TP, daily loss limit (5%)
 5. `src/user_data_stream.py` + `src/notifier.py` — Real-time TP/SL detection via WebSocket, Discord webhooks
 
@@ -116,3 +116,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-03 | `position-monitor-logging` | Completed |
 | 2026-03-03 | `adx-ml-feature-migration` (design + plan) | Completed |
 | 2026-03-03 | `optuna-precision-objective-plan` | Pending |
+| 2026-03-04 | `oi-derived-features` (design + plan) | In Progress |

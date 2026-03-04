@@ -266,3 +266,74 @@ def test_stratified_undersample_preserves_signal():
     signal_indices = np.where(source == "signal")[0]
     for si in signal_indices:
         assert si in idx, f"signal 인덱스 {si}가 누락됨"
+
+
+def test_oi_derived_features_present():
+    """OI 파생 피처 2개가 결과에 포함되어야 한다."""
+    import numpy as np
+    import pandas as pd
+    from src.dataset_builder import _calc_features_vectorized, _calc_signals, _calc_indicators
+
+    n = 300
+    np.random.seed(42)
+    df = pd.DataFrame({
+        "open":      np.random.uniform(1, 2, n),
+        "high":      np.random.uniform(2, 3, n),
+        "low":       np.random.uniform(0.5, 1, n),
+        "close":     np.random.uniform(1, 2, n),
+        "volume":    np.random.uniform(1000, 5000, n),
+        "oi_change": np.concatenate([np.zeros(100), np.random.uniform(-0.05, 0.05, 200)]),
+    })
+    d = _calc_indicators(df)
+    sig = _calc_signals(d)
+    feat = _calc_features_vectorized(d, sig)
+
+    assert "oi_change_ma5" in feat.columns, "oi_change_ma5 컬럼이 없음"
+    assert "oi_price_spread" in feat.columns, "oi_price_spread 컬럼이 없음"
+
+
+def test_oi_derived_features_nan_when_no_oi():
+    """oi_change 컬럼이 없으면 파생 피처도 nan이어야 한다."""
+    import numpy as np
+    import pandas as pd
+    from src.dataset_builder import _calc_features_vectorized, _calc_signals, _calc_indicators
+
+    n = 200
+    np.random.seed(0)
+    df = pd.DataFrame({
+        "open":   np.random.uniform(1, 2, n),
+        "high":   np.random.uniform(2, 3, n),
+        "low":    np.random.uniform(0.5, 1, n),
+        "close":  np.random.uniform(1, 2, n),
+        "volume": np.random.uniform(1000, 5000, n),
+    })
+    d = _calc_indicators(df)
+    sig = _calc_signals(d)
+    feat = _calc_features_vectorized(d, sig)
+
+    assert feat["oi_change_ma5"].isna().all(), "oi_change 컬럼 없을 때 oi_change_ma5는 전부 nan이어야 함"
+    assert feat["oi_price_spread"].isna().all(), "oi_change 컬럼 없을 때 oi_price_spread는 전부 nan이어야 함"
+
+
+def test_oi_price_spread_is_continuous():
+    """oi_price_spread는 바이너리가 아닌 연속값이어야 한다."""
+    import numpy as np
+    import pandas as pd
+    from src.dataset_builder import _calc_features_vectorized, _calc_signals, _calc_indicators
+
+    n = 300
+    np.random.seed(42)
+    df = pd.DataFrame({
+        "open":      np.random.uniform(1, 2, n),
+        "high":      np.random.uniform(2, 3, n),
+        "low":       np.random.uniform(0.5, 1, n),
+        "close":     np.random.uniform(1, 2, n),
+        "volume":    np.random.uniform(1000, 5000, n),
+        "oi_change": np.random.uniform(-0.05, 0.05, n),
+    })
+    d = _calc_indicators(df)
+    sig = _calc_signals(d)
+    feat = _calc_features_vectorized(d, sig)
+
+    valid = feat["oi_price_spread"].dropna()
+    assert len(valid.unique()) > 2, "oi_price_spread는 연속값이어야 함 (2개 초과 유니크 값)"

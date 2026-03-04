@@ -9,8 +9,9 @@ FEATURE_COLS = [
     "eth_ret_1", "eth_ret_3", "eth_ret_5",
     "xrp_btc_rs", "xrp_eth_rs",
     # 시장 미시구조: OI 변화율(z-score), 펀딩비(z-score)
-    # parquet에 oi_change/funding_rate 컬럼이 없으면 dataset_builder에서 0으로 채움
     "oi_change", "funding_rate",
+    # OI 파생 피처
+    "oi_change_ma5", "oi_price_spread",
     "adx",
 ]
 
@@ -37,12 +38,14 @@ def build_features(
     eth_df: pd.DataFrame | None = None,
     oi_change: float | None = None,
     funding_rate: float | None = None,
+    oi_change_ma5: float | None = None,
+    oi_price_spread: float | None = None,
 ) -> pd.Series:
     """
     기술 지표가 계산된 DataFrame의 마지막 행에서 ML 피처를 추출한다.
-    btc_df, eth_df가 제공되면 24개 피처를, 없으면 16개 피처를 반환한다.
+    btc_df, eth_df가 제공되면 26개 피처를, 없으면 18개 피처를 반환한다.
     signal: "LONG" | "SHORT"
-    oi_change, funding_rate: 실제 값이 제공되면 사용, 없으면 0.0으로 채운다.
+    oi_change, funding_rate, oi_change_ma5, oi_price_spread: 실제 값이 제공되면 사용, 없으면 0.0으로 채운다.
     """
     last = df.iloc[-1]
     close = last["close"]
@@ -132,8 +135,10 @@ def build_features(
         })
 
     # 실시간에서 실제 값이 제공되면 사용, 없으면 0으로 채운다
-    base["oi_change"]    = float(oi_change)    if oi_change    is not None else 0.0
-    base["funding_rate"] = float(funding_rate) if funding_rate is not None else 0.0
+    base["oi_change"]       = float(oi_change)       if oi_change       is not None else 0.0
+    base["funding_rate"]    = float(funding_rate)    if funding_rate    is not None else 0.0
+    base["oi_change_ma5"]   = float(oi_change_ma5)   if oi_change_ma5   is not None else 0.0
+    base["oi_price_spread"] = float(oi_price_spread) if oi_price_spread is not None else 0.0
     base["adx"] = float(last.get("adx", 0))
 
     return pd.Series(base)

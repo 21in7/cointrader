@@ -287,8 +287,18 @@ def _calc_features_vectorized(
     else:
         fr_raw = np.full(len(d), np.nan)
 
-    result["oi_change"]    = _rolling_zscore(oi_raw.astype(np.float64))
-    result["funding_rate"] = _rolling_zscore(fr_raw.astype(np.float64))
+    oi_z = _rolling_zscore(oi_raw.astype(np.float64), window=96)
+    result["oi_change"]    = oi_z
+    result["funding_rate"] = _rolling_zscore(fr_raw.astype(np.float64), window=96)
+
+    # --- OI 파생 피처 ---
+    # 1. oi_change_ma5: OI 변화율의 5캔들 이동평균 (단기 추세)
+    oi_series = pd.Series(oi_raw.astype(np.float64))
+    oi_ma5_raw = oi_series.rolling(window=5, min_periods=1).mean().values
+    result["oi_change_ma5"] = _rolling_zscore(oi_ma5_raw, window=96)
+
+    # 2. oi_price_spread: z-scored OI - z-scored 가격 수익률 (연속값)
+    result["oi_price_spread"] = oi_z - ret_1_z
 
     return result
 
@@ -384,7 +394,7 @@ def generate_dataset_vectorized(
     feat_all   = _calc_features_vectorized(d, signal_arr, btc_df=btc_df, eth_df=eth_df)
 
     # 신호 발생 + NaN 없음 + 미래 데이터 충분한 인덱스만
-    OPTIONAL_COLS = {"oi_change", "funding_rate"}
+    OPTIONAL_COLS = {"oi_change", "funding_rate", "oi_change_ma5", "oi_price_spread"}
     available_cols_for_nan_check = [
         c for c in FEATURE_COLS
         if c in feat_all.columns and c not in OPTIONAL_COLS
