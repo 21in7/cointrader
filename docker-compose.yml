@@ -16,3 +16,40 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  dashboard-api:
+    image: 10.1.10.28:3000/gihyeon/cointrader-dashboard-api:latest
+    container_name: dashboard-api
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+      - LOG_DIR=/app/logs
+      - DB_PATH=/app/data/dashboard.db
+      - POLL_INTERVAL=5
+    volumes:
+      - ./logs:/app/logs:ro
+      - dashboard-data:/app/data
+    depends_on:
+      - cointrader
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  dashboard-ui:
+    image: 10.1.10.28:3000/gihyeon/cointrader-dashboard-ui:latest
+    container_name: dashboard-ui
+    restart: unless-stopped
+    ports:
+      - "8080:3000"
+    depends_on:
+      - dashboard-api
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  dashboard-data:

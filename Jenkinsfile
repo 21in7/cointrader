@@ -7,7 +7,10 @@ pipeline {
         IMAGE_TAG     = "${env.BUILD_NUMBER}"
         FULL_IMAGE    = "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
         LATEST_IMAGE  = "${REGISTRY}/${IMAGE_NAME}:latest"
-        
+
+        DASH_API_IMAGE  = "${REGISTRY}/gihyeon/cointrader-dashboard-api"
+        DASH_UI_IMAGE   = "${REGISTRY}/gihyeon/cointrader-dashboard-ui"
+
         // 젠킨스 자격 증명에 저장해둔 디스코드 웹훅 주소를 불러옵니다.
         DISCORD_WEBHOOK = credentials('discord-webhook')
     }
@@ -33,9 +36,11 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Docker Images') {
             steps {
                 sh "docker build -t ${FULL_IMAGE} -t ${LATEST_IMAGE} ."
+                sh "docker build -t ${DASH_API_IMAGE}:${IMAGE_TAG} -t ${DASH_API_IMAGE}:latest ./dashboard/api"
+                sh "docker build -t ${DASH_UI_IMAGE}:${IMAGE_TAG} -t ${DASH_UI_IMAGE}:latest ./dashboard/ui"
             }
         }
 
@@ -45,6 +50,10 @@ pipeline {
                     sh "echo \$GITEA_TOKEN | docker login ${REGISTRY} -u \$GITEA_USER --password-stdin"
                     sh "docker push ${FULL_IMAGE}"
                     sh "docker push ${LATEST_IMAGE}"
+                    sh "docker push ${DASH_API_IMAGE}:${IMAGE_TAG}"
+                    sh "docker push ${DASH_API_IMAGE}:latest"
+                    sh "docker push ${DASH_UI_IMAGE}:${IMAGE_TAG}"
+                    sh "docker push ${DASH_UI_IMAGE}:latest"
                 }
             }
         }
@@ -66,6 +75,10 @@ pipeline {
             steps {
                 sh "docker rmi ${FULL_IMAGE} || true"
                 sh "docker rmi ${LATEST_IMAGE} || true"
+                sh "docker rmi ${DASH_API_IMAGE}:${IMAGE_TAG} || true"
+                sh "docker rmi ${DASH_API_IMAGE}:latest || true"
+                sh "docker rmi ${DASH_UI_IMAGE}:${IMAGE_TAG} || true"
+                sh "docker rmi ${DASH_UI_IMAGE}:latest || true"
             }
         }
     }

@@ -16,7 +16,7 @@ def setup_logger(log_level: str = "INFO"):
         colorize=True,
     )
     logger.add(
-        "logs/bot_{time:YYYY-MM-DD}.log",
+        "logs/bot.log",
         rotation="00:00",
         retention="30 days",
         level="DEBUG",
