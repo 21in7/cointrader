@@ -149,8 +149,8 @@ class MLFilter:
             )
             return bool(proba >= self._threshold)
         except Exception as e:
-            logger.warning(f"ML 필터 예측 오류 (폴백 허용): {e}")
-            return True
+            logger.warning(f"ML 필터 예측 오류 (진입 차단): {e}")
+            return False
 
     def reload_model(self):
         """외부에서 강제 리로드할 때 사용 (하위 호환)."""

@@ -13,3 +13,5 @@ data/*.parquet
 .worktrees/
 .DS_Store
 .cursor/
+
+.worktrees/
