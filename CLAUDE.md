@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CoinTrader is a Python asyncio-based automated cryptocurrency trading bot for Binance Futures. It trades XRPUSDT on 15-minute candles, using BTC/ETH as correlation features. The system has 5 layers: Data (WebSocket streams) → Signal (technical indicators) → ML Filter (ONNX/LightGBM) → Execution & Risk → Event/Alert (Discord).
+CoinTrader is a Python asyncio-based automated cryptocurrency trading bot for Binance Futures. It supports multi-symbol simultaneous trading (XRP, TRX, DOGE etc.) on 15-minute candles, using BTC/ETH as correlation features. The system has 5 layers: Data (WebSocket streams) → Signal (technical indicators) → ML Filter (ONNX/LightGBM) → Execution & Risk → Event/Alert (Discord).
 
 ## Common Commands
 
@@ -24,34 +24,44 @@ bash scripts/run_tests.sh -k "bot"
 # Run pytest directly
 pytest tests/ -v --tb=short
 
-# ML training pipeline (LightGBM default)
+# ML training pipeline (all symbols)
 bash scripts/train_and_deploy.sh
 
+# Single symbol training
+bash scripts/train_and_deploy.sh --symbol TRXUSDT
+
 # MLX GPU training (macOS Apple Silicon)
-bash scripts/train_and_deploy.sh mlx
+bash scripts/train_and_deploy.sh mlx --symbol XRPUSDT
 
 # Hyperparameter tuning (50 trials, 5-fold walk-forward)
-python scripts/tune_hyperparams.py
+python scripts/tune_hyperparams.py --symbol XRPUSDT
 
-# Fetch historical data
+# Fetch historical data (single symbol with auto correlation)
+python scripts/fetch_history.py --symbol TRXUSDT --interval 15m --days 365
+
+# Fetch historical data (explicit symbols)
 python scripts/fetch_history.py --symbols XRPUSDT BTCUSDT ETHUSDT --interval 15m --days 365
 
 # Deploy models to production
-bash scripts/deploy_model.sh
+bash scripts/deploy_model.sh --symbol XRPUSDT
 ```
 
 ## Architecture
 
-**Entry point**: `main.py` → creates `Config` (dataclass from env vars) → runs `TradingBot`
+**Entry point**: `main.py` → creates `Config` → shared `RiskManager` → per-symbol `TradingBot` instances → `asyncio.gather()`
+
+**Multi-symbol architecture**: Each symbol gets its own `TradingBot` instance with independent `Exchange`, `MLFilter`, and `DataStream`. The `RiskManager` is shared as a singleton across all bots, enforcing global daily loss limits and same-direction position limits via `asyncio.Lock`.
 
 **5-layer data flow on each 15m candle close:**
-1. `src/data_stream.py` — Combined WebSocket for XRP/BTC/ETH, deque buffers (200 candles each)
+1. `src/data_stream.py` — Combined WebSocket for primary+correlation symbols, deque buffers (200 candles each)
 2. `src/indicators.py` — RSI, MACD, BB, EMA, StochRSI, ATR; weighted signal aggregation → LONG/SHORT/HOLD
 3. `src/ml_filter.py` + `src/ml_features.py` — 26-feature extraction (ADX + OI 파생 피처 포함), ONNX priority > LightGBM fallback, threshold ≥ 0.55
-4. `src/exchange.py` + `src/risk_manager.py` — Dynamic margin, MARKET orders with SL/TP, daily loss limit (5%)
+4. `src/exchange.py` + `src/risk_manager.py` — Dynamic margin, MARKET orders with SL/TP, daily loss limit (5%), same-direction limit
 5. `src/user_data_stream.py` + `src/notifier.py` — Real-time TP/SL detection via WebSocket, Discord webhooks
 
-**Parallel execution**: `user_data_stream` runs independently via `asyncio.gather()` alongside candle processing.
+**Parallel execution**: Per-symbol bots run independently via `asyncio.gather()`. Each bot's `user_data_stream` also runs in parallel.
+
+**Model/data directories**: `models/{symbol}/` and `data/{symbol}/` for per-symbol models. Falls back to `models/` root if symbol dir doesn't exist.
 
 ## Key Patterns
 
@@ -72,7 +82,7 @@ bash scripts/deploy_model.sh
 
 ## Configuration
 
-Environment variables via `.env` file (see `.env.example`). Key vars: `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `SYMBOL` (default XRPUSDT), `LEVERAGE`, `DISCORD_WEBHOOK_URL`, `MARGIN_MAX_RATIO`, `MARGIN_MIN_RATIO`, `NO_ML_FILTER`.
+Environment variables via `.env` file (see `.env.example`). Key vars: `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `SYMBOLS` (comma-separated, e.g. `XRPUSDT,TRXUSDT`), `CORRELATION_SYMBOLS` (default `BTCUSDT,ETHUSDT`), `LEVERAGE`, `DISCORD_WEBHOOK_URL`, `MARGIN_MAX_RATIO`, `MARGIN_MIN_RATIO`, `MAX_SAME_DIRECTION` (default 2), `NO_ML_FILTER`.
 
 `src/config.py` uses `@dataclass` with `__post_init__` to load and validate all env vars.
 
@@ -80,7 +90,7 @@ Environment variables via `.env` file (see `.env.example`). Key vars: `BINANCE_A
 
 - **Docker**: `Dockerfile` (Python 3.12-slim) + `docker-compose.yml`
 - **CI/CD**: Jenkins pipeline (Gitea → Docker registry → LXC production server)
-- Models stored in `models/`, data cache in `data/`, logs in `logs/`
+- Models stored in `models/{symbol}/`, data cache in `data/{symbol}/`, logs in `logs/`
 
 ## Design & Implementation Plans
 
@@ -118,3 +128,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-03 | `optuna-precision-objective-plan` | Completed |
 | 2026-03-03 | `demo-1m-125x` (design + plan) | In Progress |
 | 2026-03-04 | `oi-derived-features` (design + plan) | Completed |
+| 2026-03-05 | `multi-symbol-trading` (design + plan) | Completed |
