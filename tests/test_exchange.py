@@ -22,6 +22,7 @@ def client():
     config.leverage = 10
     c = BinanceFuturesClient.__new__(BinanceFuturesClient)
     c.config = config
+    c.symbol = config.symbol
     return c
 
 
@@ -36,8 +37,22 @@ def exchange():
     config = Config()
     c = BinanceFuturesClient.__new__(BinanceFuturesClient)
     c.config = config
+    c.symbol = config.symbol
     c.client = MagicMock()
     return c
+
+
+def test_exchange_uses_own_symbol():
+    """Exchange 클라이언트가 config.symbol 대신 생성자의 symbol을 사용한다."""
+    os.environ.update({
+        "BINANCE_API_KEY": "test_key",
+        "BINANCE_API_SECRET": "test_secret",
+        "SYMBOL": "XRPUSDT",
+    })
+    config = Config()
+    with patch("src.exchange.Client"):
+        client = BinanceFuturesClient(config, symbol="TRXUSDT")
+    assert client.symbol == "TRXUSDT"
 
 
 @pytest.mark.asyncio

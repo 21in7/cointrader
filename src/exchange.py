@@ -6,8 +6,9 @@ from src.config import Config
 
 
 class BinanceFuturesClient:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, symbol: str = None):
         self.config = config
+        self.symbol = symbol or config.symbol
         self.client = Client(
             api_key=config.api_key,
             api_secret=config.api_secret,
@@ -31,7 +32,7 @@ class BinanceFuturesClient:
         return await loop.run_in_executor(
             None,
             lambda: self.client.futures_change_leverage(
-                symbol=self.config.symbol, leverage=leverage
+                symbol=self.symbol, leverage=leverage
             ),
         )
 
@@ -68,7 +69,7 @@ class BinanceFuturesClient:
             )
 
         params = dict(
-            symbol=self.config.symbol,
+            symbol=self.symbol,
             side=side,
             type=order_type,
             quantity=quantity,
@@ -98,7 +99,7 @@ class BinanceFuturesClient:
         """STOP_MARKET / TAKE_PROFIT_MARKET 등 Algo Order API(/fapi/v1/algoOrder)로 전송."""
         loop = asyncio.get_event_loop()
         params = dict(
-            symbol=self.config.symbol,
+            symbol=self.symbol,
             side=side,
             algoType="CONDITIONAL",
             type=order_type,
@@ -120,7 +121,7 @@ class BinanceFuturesClient:
         positions = await loop.run_in_executor(
             None,
             lambda: self.client.futures_position_information(
-                symbol=self.config.symbol
+                symbol=self.symbol
             ),
         )
         for p in positions:
@@ -134,14 +135,14 @@ class BinanceFuturesClient:
         await loop.run_in_executor(
             None,
             lambda: self.client.futures_cancel_all_open_orders(
-                symbol=self.config.symbol
+                symbol=self.symbol
             ),
         )
         try:
             await loop.run_in_executor(
                 None,
                 lambda: self.client.futures_cancel_all_algo_open_orders(
-                    symbol=self.config.symbol
+                    symbol=self.symbol
                 ),
             )
         except Exception as e:
@@ -153,7 +154,7 @@ class BinanceFuturesClient:
         try:
             result = await loop.run_in_executor(
                 None,
-                lambda: self.client.futures_open_interest(symbol=self.config.symbol),
+                lambda: self.client.futures_open_interest(symbol=self.symbol),
             )
             return float(result["openInterest"])
         except Exception as e:
@@ -166,7 +167,7 @@ class BinanceFuturesClient:
         try:
             result = await loop.run_in_executor(
                 None,
-                lambda: self.client.futures_mark_price(symbol=self.config.symbol),
+                lambda: self.client.futures_mark_price(symbol=self.symbol),
             )
             return float(result["lastFundingRate"])
         except Exception as e:
@@ -180,7 +181,7 @@ class BinanceFuturesClient:
             result = await loop.run_in_executor(
                 None,
                 lambda: self.client.futures_open_interest_hist(
-                    symbol=self.config.symbol, period="15m", limit=limit + 1,
+                    symbol=self.symbol, period="15m", limit=limit + 1,
                 ),
             )
             if len(result) < 2:
