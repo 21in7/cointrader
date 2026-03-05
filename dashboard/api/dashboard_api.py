@@ -4,6 +4,7 @@ dashboard_api.py — 로그 파서가 채운 SQLite DB를 읽어서 대시보드
 
 import sqlite3
 import os
+import signal
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -104,5 +105,23 @@ def health():
         return {"status": "ok", "candles_count": cnt}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
+
+
+@app.post("/api/reset")
+def reset_db():
+    """DB 전체 초기화 후 파서 재시작 (로그를 처음부터 다시 파싱)"""
+    with get_db() as db:
+        for table in ["trades", "daily_pnl", "parse_state", "bot_status", "candles"]:
+            db.execute(f"DELETE FROM {table}")
+        db.commit()
+
+    # 파서 프로세스 재시작 (entrypoint.sh의 백그라운드 프로세스)
+    import subprocess
+    # 기존 파서 종료
+    subprocess.run(["pkill", "-f", "log_parser.py"], capture_output=True)
+    # 새 파서 시작
+    subprocess.Popen(["python", "log_parser.py"])
+
+    return {"status": "ok", "message": "DB 초기화 완료, 파서 재시작됨"}
 
 

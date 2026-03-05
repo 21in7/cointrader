@@ -621,12 +621,28 @@ export default function App() {
         <div style={{
           textAlign: "center", padding: "24px 0 8px", marginTop: 24,
           borderTop: "1px solid rgba(255,255,255,0.03)",
+          display: "flex", justifyContent: "center", alignItems: "center", gap: 16,
         }}>
           <span style={{ fontSize: 10, color: "rgba(255,255,255,0.12)", fontFamily: S.mono }}>
             {lastUpdate
               ? `Synced: ${lastUpdate.toLocaleTimeString("ko-KR")} · 15s polling`
               : "API 연결 대기 중…"}
           </span>
+          <button
+            onClick={async () => {
+              if (!confirm("DB를 초기화하고 로그를 처음부터 다시 파싱합니다. 계속할까요?")) return;
+              try {
+                const r = await fetch("/api/reset", { method: "POST" });
+                if (r.ok) { alert("초기화 완료. 잠시 후 데이터가 다시 채워집니다."); location.reload(); }
+                else alert("초기화 실패: " + r.statusText);
+              } catch (e) { alert("초기화 실패: " + e.message); }
+            }}
+            style={{
+              fontSize: 10, fontFamily: S.mono, padding: "3px 10px",
+              background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.2)",
+              border: "1px solid rgba(255,255,255,0.06)", borderRadius: 6, cursor: "pointer",
+            }}
+          >Reset DB</button>
         </div>
       </div>
 
