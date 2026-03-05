@@ -385,22 +385,20 @@ class LogParser:
         if leverage is None:
             leverage = self._bot_config.get("leverage", 10)
 
-        # 메모리 내 중복 체크
-        if self._current_position:
-            if abs(self._current_position["entry_price"] - entry_price) < 0.0001:
-                return
+        # 중복 체크 — 같은 방향의 OPEN 포지션이 이미 있으면 스킵
+        # (봇은 동시에 같은 방향 포지션을 2개 이상 열지 않음)
+        if self._current_position and self._current_position.get("direction") == direction:
+            return
 
-        # DB 내 중복 체크 — 같은 방향·가격의 OPEN 포지션이 이미 있으면 스킵
         existing = self.conn.execute(
-            "SELECT id FROM trades WHERE status='OPEN' AND direction=? "
-            "AND ABS(entry_price - ?) < 0.0001",
-            (direction, entry_price),
+            "SELECT id, entry_price FROM trades WHERE status='OPEN' AND direction=?",
+            (direction,),
         ).fetchone()
         if existing:
             self._current_position = {
                 "id": existing["id"],
                 "direction": direction,
-                "entry_price": entry_price,
+                "entry_price": existing["entry_price"],
                 "entry_time": ts,
             }
             return
@@ -427,18 +425,17 @@ class LogParser:
 
     # ── 포지션 청산 핸들러 ───────────────────────────────────────
     def _handle_close(self, ts, exit_price, expected_pnl, commission, net_pnl, reason):
-        if not self._current_position:
-            # 열린 포지션 없으면 DB에서 찾기
-            row = self.conn.execute(
-                "SELECT id, entry_price, direction FROM trades WHERE status='OPEN' ORDER BY id DESC LIMIT 1"
-            ).fetchone()
-            if row:
-                self._current_position = dict(row)
-            else:
-                print(f"[LogParser] 경고: 청산 감지했으나 열린 포지션 없음")
-                return
+        # 모든 OPEN 거래를 닫음 (봇은 동시에 1개 포지션만 보유)
+        open_trades = self.conn.execute(
+            "SELECT id FROM trades WHERE status='OPEN' ORDER BY id DESC"
+        ).fetchall()
 
-        trade_id = self._current_position["id"]
+        if not open_trades:
+            print(f"[LogParser] 경고: 청산 감지했으나 열린 포지션 없음")
+            return
+
+        # 가장 최근 OPEN에 실제 PnL 기록
+        primary_id = open_trades[0]["id"]
         self.conn.execute(
             """UPDATE trades SET
                exit_time=?, exit_price=?, expected_pnl=?,
@@ -447,8 +444,17 @@ class LogParser:
                WHERE id=?""",
             (ts, exit_price, expected_pnl,
              expected_pnl, commission, net_pnl,
-             reason, trade_id)
+             reason, primary_id)
         )
+
+        # 나머지 OPEN 거래는 중복이므로 삭제
+        if len(open_trades) > 1:
+            stale_ids = [r["id"] for r in open_trades[1:]]
+            self.conn.execute(
+                f"DELETE FROM trades WHERE id IN ({','.join('?' * len(stale_ids))})",
+                stale_ids,
+            )
+            print(f"[LogParser] 중복 OPEN 거래 {len(stale_ids)}건 삭제")
 
         # 일별 요약 갱신
         day = ts[:10]
