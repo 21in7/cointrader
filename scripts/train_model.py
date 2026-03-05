@@ -531,7 +531,9 @@ def compare(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: s
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data/combined_15m.parquet")
+    parser.add_argument("--data", default=None)
+    parser.add_argument("--symbol", type=str, default=None,
+                        help="학습 대상 심볼 (예: TRXUSDT). data/{symbol}/ 에서 데이터 로드, models/{symbol}/ 에 저장")
     parser.add_argument(
         "--decay", type=float, default=2.0,
         help="시간 가중치 감쇠 강도 (0=균등, 2.0=최신이 ~7.4배 높음)",
@@ -545,6 +547,20 @@ def main():
     parser.add_argument("--compare", action="store_true",
                         help="OI 파생 피처 추가 전후 A/B 성능 비교")
     args = parser.parse_args()
+
+    # --symbol 모드: 심볼별 디렉토리 경로 자동 결정
+    if args.symbol:
+        sym_lower = args.symbol.lower()
+        if args.data is None:
+            args.data = f"data/{sym_lower}/combined_15m.parquet"
+        global MODEL_PATH, PREV_MODEL_PATH, LOG_PATH, ACTIVE_PARAMS_PATH
+        MODEL_PATH = Path(f"models/{sym_lower}/lgbm_filter.pkl")
+        PREV_MODEL_PATH = Path(f"models/{sym_lower}/lgbm_filter_prev.pkl")
+        LOG_PATH = Path(f"models/{sym_lower}/training_log.json")
+        ACTIVE_PARAMS_PATH = Path(f"models/{sym_lower}/active_lgbm_params.json")
+        MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    elif args.data is None:
+        args.data = "data/combined_15m.parquet"
 
     if args.compare:
         compare(args.data, time_weight_decay=args.decay, tuned_params_path=args.tuned_params)

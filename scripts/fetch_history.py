@@ -333,9 +333,22 @@ def main():
     )
     args = parser.parse_args()
 
-    # 하위 호환: --symbol 단독 사용 시 symbols로 통합
-    if args.symbol and args.symbols == ["XRPUSDT"]:
-        args.symbols = [args.symbol]
+    # --symbol 모드: 단일 거래 심볼 + 상관관계 심볼 자동 추가, 출력 경로 자동 결정
+    if args.symbol:
+        from src.config import Config
+        try:
+            cfg = Config()
+            corr_symbols = cfg.correlation_symbols
+        except Exception:
+            corr_symbols = ["BTCUSDT", "ETHUSDT"]
+        args.symbols = [args.symbol] + corr_symbols
+        if args.output == "data/combined_15m.parquet":
+            sym_lower = args.symbol.lower()
+            os.makedirs(f"data/{sym_lower}", exist_ok=True)
+            args.output = f"data/{sym_lower}/combined_15m.parquet"
+    # 하위 호환: 단일 심볼만 지정된 경우
+    elif args.symbols == ["XRPUSDT"] and not args.symbol:
+        pass  # 기본값 유지
 
     if len(args.symbols) == 1:
         df = asyncio.run(fetch_klines(args.symbols[0], args.interval, args.days))
