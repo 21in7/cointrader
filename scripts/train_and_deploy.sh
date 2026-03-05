@@ -68,6 +68,7 @@ else
 fi
 
 DECAY="${TIME_WEIGHT_DECAY:-2.0}"
+CORR_CACHE_DIR="data/.corr_cache"
 
 echo ""
 echo "========================================"
@@ -106,6 +107,7 @@ for SYM in "${TARGETS[@]}"; do
         --symbol "$SYM" \
         --interval 15m \
         --days "$FETCH_DAYS" \
+        --corr-cache-dir "$CORR_CACHE_DIR" \
         $UPSERT_FLAG
 
     # === [1.5/3] OI 파생 피처 A/B 비교 ===
@@ -153,6 +155,9 @@ for SYM in "${TARGETS[@]}"; do
     echo "  [$SYM] 파이프라인 완료"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 done
+
+# 상관 심볼 캐시 정리
+rm -rf "$CORR_CACHE_DIR"
 
 echo ""
 echo "=== 전체 파이프라인 완료: $(date '+%Y-%m-%d %H:%M:%S %Z') ==="

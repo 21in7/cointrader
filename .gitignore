@@ -15,3 +15,4 @@ data/*.parquet
 .cursor/
 
 .worktrees/
+.venv

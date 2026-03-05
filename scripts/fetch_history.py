@@ -331,6 +331,10 @@ def main():
         "--no-upsert", action="store_true",
         help="기존 parquet을 Upsert하지 않고 새로 덮어씀 (기본: Upsert 활성화)",
     )
+    parser.add_argument(
+        "--corr-cache-dir", default=None,
+        help="상관 심볼(BTC/ETH) 캐시 디렉토리. 첫 수집 시 저장, 이후 재사용",
+    )
     args = parser.parse_args()
 
     # --symbol 모드: 단일 거래 심볼 + 상관관계 심볼 자동 추가, 출력 경로 자동 결정
@@ -360,8 +364,43 @@ def main():
         df.to_parquet(args.output)
         print(f"{'Upsert' if not args.no_upsert else '저장'} 완료: {args.output} ({len(df):,}행, {len(df.columns)}컬럼)")
     else:
-        # 멀티 심볼: 단일 클라이언트로 순차 수집 후 타임스탬프 기준 inner join 병합
-        dfs = asyncio.run(fetch_klines_all(args.symbols, args.interval, args.days))
+        # 멀티 심볼: 상관 심볼 캐시 활용
+        corr_cache_dir = args.corr_cache_dir
+        cached_symbols = {}
+        symbols_to_fetch = list(args.symbols)
+
+        if corr_cache_dir:
+            os.makedirs(corr_cache_dir, exist_ok=True)
+            remaining = []
+            for sym in args.symbols:
+                cache_file = os.path.join(corr_cache_dir, f"{sym.lower()}_{args.interval}.parquet")
+                if os.path.exists(cache_file):
+                    print(f"  [{sym}] 캐시 사용: {cache_file}")
+                    cached_symbols[sym] = pd.read_parquet(cache_file)
+                else:
+                    remaining.append(sym)
+            symbols_to_fetch = remaining
+
+        if symbols_to_fetch:
+            dfs = asyncio.run(fetch_klines_all(symbols_to_fetch, args.interval, args.days))
+        else:
+            dfs = {}
+
+        # 캐시에 저장 (상관 심볼만)
+        if corr_cache_dir:
+            from src.config import Config
+            try:
+                corr_list = Config().correlation_symbols
+            except Exception:
+                corr_list = ["BTCUSDT", "ETHUSDT"]
+            for sym, df in dfs.items():
+                if sym in corr_list:
+                    cache_file = os.path.join(corr_cache_dir, f"{sym.lower()}_{args.interval}.parquet")
+                    df.to_parquet(cache_file)
+                    print(f"  [{sym}] 캐시 저장: {cache_file}")
+
+        # 캐시 + 새로 수집한 데이터 합치기
+        dfs.update(cached_symbols)
 
         primary = args.symbols[0]
         merged = dfs[primary].copy()
@@ -377,7 +416,7 @@ def main():
             print(f"\n[OI/펀딩비] {primary} 수집 중...")
             merged = asyncio.run(_fetch_oi_and_funding(primary, args.days, merged))
 
-        output = args.output.replace("xrpusdt", "combined")
+        output = args.output
         if not args.no_upsert:
             merged = upsert_parquet(output, merged)
         merged.to_parquet(output)

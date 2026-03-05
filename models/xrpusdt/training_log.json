@@ -1,0 +1,27 @@
+[
+  {
+    "date": "2026-03-05T23:53:20.451588",
+    "backend": "lgbm",
+    "auc": 0.9428,
+    "best_threshold": 0.8486,
+    "best_precision": 0.583,
+    "best_recall": 0.171,
+    "samples": 3222,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/xrpusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
+  }
+]
