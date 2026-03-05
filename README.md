@@ -57,6 +57,9 @@ cointrader/
 │   ├── tune_hyperparams.py    # Optuna 하이퍼파라미터 자동 탐색 (수동 트리거)
 │   ├── deploy_model.sh        # 모델 파일 LXC 서버 전송
 │   └── run_tests.sh           # 전체 테스트 실행
+├── dashboard/
+│   ├── api/                   # FastAPI 백엔드 (로그 파서 + REST API)
+│   └── ui/                    # React 프론트엔드 (Vite + Recharts)
 ├── models/                    # 학습된 모델 저장 (.pkl / .onnx)
 ├── data/                      # 과거 데이터 캐시 (.parquet)
 ├── logs/                      # 로그 파일
@@ -238,6 +241,46 @@ MLX로 학습한 모델은 ONNX 포맷으로 export되어 Linux 서버에서 `on
 6. **Cleanup** — 빌드 서버 로컬 이미지 정리
 
 빌드 성공/실패 결과는 Discord로 자동 알림됩니다.
+
+---
+
+## 대시보드
+
+봇 로그를 실시간으로 파싱하여 거래 내역, 수익 통계, 차트를 웹에서 조회할 수 있는 모니터링 대시보드입니다.
+
+### 기술 스택
+
+- **프론트엔드**: React 18 + Vite + Recharts, Nginx 정적 서빙
+- **백엔드**: FastAPI + SQLite, 로그 파서(5초 주기 폴링)
+- **배포**: Docker Compose 3컨테이너 (`dashboard-ui`, `dashboard-api`, `cointrader`)
+
+### 주요 화면
+
+| 탭 | 내용 |
+|----|------|
+| **Overview** | 총 수익, 승률, 거래 수, 최대 수익/손실 KPI + 일별 PnL 차트 + 누적 수익 곡선 |
+| **Trades** | 전체 거래 내역 — 진입/청산가, 방향, 레버리지, 기술 지표(RSI, MACD, ATR), SL/TP, 순익 상세 |
+| **Chart** | XRP/USDT 15분봉 가격 차트 + RSI 지표 + ADX 추세 강도 |
+
+### API 엔드포인트
+
+| 엔드포인트 | 설명 |
+|-----------|------|
+| `GET /api/position` | 현재 포지션 + 봇 상태 |
+| `GET /api/trades` | 청산 거래 내역 (페이지네이션) |
+| `GET /api/daily` | 일별 PnL 집계 |
+| `GET /api/stats` | 전체 통계 (총 거래, 승률, 수수료 등) |
+| `GET /api/candles` | 최근 캔들 + 기술 지표 |
+| `GET /api/health` | 헬스 체크 |
+| `POST /api/reset` | DB 초기화 + 로그 파서 재시작 |
+
+### 실행
+
+```bash
+docker compose up -d
+```
+
+대시보드는 `http://<서버IP>:8080`에서 접속할 수 있습니다. 봇 로그를 읽기 전용으로 마운트하여 봇 코드를 수정하지 않는 디커플드 설계입니다.
 
 ---
 

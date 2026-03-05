@@ -205,7 +205,10 @@ class TradingBot:
         )
         logger.success(
             f"{signal} 진입: 가격={price}, 수량={quantity}, "
-            f"SL={stop_loss:.4f}, TP={take_profit:.4f}"
+            f"SL={stop_loss:.4f}, TP={take_profit:.4f}, "
+            f"RSI={signal_snapshot['rsi']:.2f}, "
+            f"MACD_H={signal_snapshot['macd_hist']:.6f}, "
+            f"ATR={signal_snapshot['atr']:.6f}"
         )
 
         sl_side = "SELL" if signal == "LONG" else "BUY"

@@ -46,7 +46,7 @@ PATTERNS = {
         r".*기존 포지션 복구: (?P<direction>\w+) \| 진입가=(?P<entry_price>[\d.]+) \| 수량=(?P<qty>[\d.]+)"
     ),
 
-    # SHORT 진입: 가격=1.3940, 수량=86.8, SL=1.4040, TP=1.3840
+    # SHORT 진입: 가격=1.3940, 수량=86.8, SL=1.4040, TP=1.3840, RSI=42.31, MACD_H=-0.001234, ATR=0.005678
     "entry": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
         r".*(?P<direction>SHORT|LONG) 진입: "
@@ -54,6 +54,9 @@ PATTERNS = {
         r"수량=(?P<qty>[\d.]+), "
         r"SL=(?P<sl>[\d.]+), "
         r"TP=(?P<tp>[\d.]+)"
+        r"(?:, RSI=(?P<rsi>[\d.]+))?"
+        r"(?:, MACD_H=(?P<macd_hist>[+\-\d.]+))?"
+        r"(?:, ATR=(?P<atr>[\d.]+))?"
     ),
 
     # 청산 감지(MANUAL): exit=1.3782, rp=+2.9859, commission=0.0598, net_pnl=+2.9261
@@ -286,7 +289,7 @@ class LogParser:
             )
             return
 
-        # 포지션 진입: SHORT 진입: 가격=X, 수량=Y, SL=Z, TP=W
+        # 포지션 진입: SHORT 진입: 가격=X, 수량=Y, SL=Z, TP=W, RSI=R, MACD_H=M, ATR=A
         m = PATTERNS["entry"].search(line)
         if m:
             self._handle_entry(
@@ -296,6 +299,9 @@ class LogParser:
                 qty=float(m.group("qty")),
                 sl=float(m.group("sl")),
                 tp=float(m.group("tp")),
+                rsi=float(m.group("rsi")) if m.group("rsi") else None,
+                macd_hist=float(m.group("macd_hist")) if m.group("macd_hist") else None,
+                atr=float(m.group("atr")) if m.group("atr") else None,
             )
             return
 
@@ -381,7 +387,8 @@ class LogParser:
 
     # ── 포지션 진입 핸들러 ───────────────────────────────────────
     def _handle_entry(self, ts, direction, entry_price, qty,
-                      leverage=None, sl=None, tp=None, is_recovery=False):
+                      leverage=None, sl=None, tp=None, is_recovery=False,
+                      rsi=None, macd_hist=None, atr=None):
         if leverage is None:
             leverage = self._bot_config.get("leverage", 10)
 
@@ -405,11 +412,12 @@ class LogParser:
 
         cur = self.conn.execute(
             """INSERT INTO trades(symbol, direction, entry_time, entry_price,
-               quantity, leverage, sl, tp, status, extra)
-               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+               quantity, leverage, sl, tp, status, extra, rsi, macd_hist, atr)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (self._bot_config.get("symbol", "XRPUSDT"), direction, ts,
              entry_price, qty, leverage, sl, tp, "OPEN",
-             json.dumps({"recovery": is_recovery})),
+             json.dumps({"recovery": is_recovery}),
+             rsi, macd_hist, atr),
         )
         self.conn.commit()
         self._current_position = {
