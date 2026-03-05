@@ -118,12 +118,15 @@ def reset_db():
     # 파서 프로세스 재시작 (entrypoint.sh의 백그라운드 프로세스)
     import subprocess, os, signal
     # 기존 파서 종료 (pkill 대신 Python-native 방식)
-    for proc_dir in os.listdir("/proc") if os.path.isdir("/proc") else []:
+    for pid_str in os.listdir("/proc") if os.path.isdir("/proc") else []:
+        if not pid_str.isdigit():
+            continue
         try:
-            cmdline = open(f"/proc/{proc_dir}/cmdline", "r").read()
-            if "log_parser.py" in cmdline and str(os.getpid()) != proc_dir:
-                os.kill(int(proc_dir), signal.SIGTERM)
-        except (ValueError, FileNotFoundError, PermissionError, ProcessLookupError):
+            with open(f"/proc/{pid_str}/cmdline", "r") as f:
+                cmdline = f.read()
+            if "log_parser.py" in cmdline and str(os.getpid()) != pid_str:
+                os.kill(int(pid_str), signal.SIGTERM)
+        except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
             pass
     # 새 파서 시작
     subprocess.Popen(["python", "log_parser.py"])
