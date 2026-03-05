@@ -308,9 +308,10 @@ def measure_baseline(
     n_splits: int,
     train_ratio: float,
     min_recall: float = 0.35,
+    active_params_path: "Path | None" = None,
 ) -> tuple[float, dict]:
     """현재 실전 파라미터(active 파일 또는 하드코딩 기본값)로 베이스라인을 측정한다."""
-    active_path = Path("models/active_lgbm_params.json")
+    active_path = active_params_path or Path("models/active_lgbm_params.json")
 
     if active_path.exists():
         with open(active_path, "r", encoding="utf-8") as f:
@@ -518,7 +519,9 @@ def save_results(
 
 def main():
     parser = argparse.ArgumentParser(description="Optuna LightGBM 하이퍼파라미터 튜닝")
-    parser.add_argument("--data",        default="data/combined_15m.parquet", help="학습 데이터 경로")
+    parser.add_argument("--data",        default=None, help="학습 데이터 경로")
+    parser.add_argument("--symbol",      type=str, default=None,
+                        help="튜닝 대상 심볼 (예: TRXUSDT). data/{symbol}/ 에서 데이터 로드, models/{symbol}/ 에 저장")
     parser.add_argument("--trials",      type=int,   default=50,  help="Optuna trial 수 (기본: 50)")
     parser.add_argument("--folds",       type=int,   default=5,   help="Walk-Forward 폴드 수 (기본: 5)")
     parser.add_argument("--train-ratio", type=float, default=0.6, help="학습 구간 비율 (기본: 0.6)")
@@ -526,16 +529,31 @@ def main():
     parser.add_argument("--no-baseline", action="store_true",     help="베이스라인 측정 건너뜀")
     args = parser.parse_args()
 
+    # --symbol 모드: 심볼별 디렉토리 경로 자동 결정
+    if args.symbol:
+        sym_lower = args.symbol.lower()
+        if args.data is None:
+            args.data = f"data/{sym_lower}/combined_15m.parquet"
+    elif args.data is None:
+        args.data = "data/combined_15m.parquet"
+
     # 1. 데이터셋 로드 (1회)
     X, y, w, source = load_dataset(args.data)
 
     # 2. 베이스라인 측정
+    if args.symbol:
+        sym_lower = args.symbol.lower()
+        _active_params_path = Path(f"models/{sym_lower}/active_lgbm_params.json")
+    else:
+        _active_params_path = None
+
     if args.no_baseline:
         baseline_score, baseline_details = 0.0, {}
         print("베이스라인 측정 건너뜀 (--no-baseline)\n")
     else:
         baseline_score, baseline_details = measure_baseline(
             X, y, w, source, args.folds, args.train_ratio, args.min_recall,
+            active_params_path=_active_params_path,
         )
         bl_prec = baseline_details.get("mean_precision", 0.0)
         bl_auc = baseline_details.get("mean_auc", 0.0)
@@ -593,16 +611,28 @@ def main():
     elapsed = time.time() - start_time
 
     # 4. 결과 저장 및 출력
+    import shutil
     output_path = save_results(
         study, baseline_score, baseline_details, elapsed, args.data, args.min_recall,
     )
+    # --symbol 모드: 결과 파일을 심볼별 디렉토리로 이동
+    if args.symbol:
+        sym_lower = args.symbol.lower()
+        sym_model_dir = Path(f"models/{sym_lower}")
+        sym_model_dir.mkdir(parents=True, exist_ok=True)
+        dest = sym_model_dir / output_path.name
+        shutil.move(str(output_path), str(dest))
+        output_path = dest
     print_report(
         study, baseline_score, baseline_details, elapsed, output_path, args.min_recall,
     )
 
     # 5. 성능 개선 시 active 파일 자동 갱신
-    import shutil
-    active_path = Path("models/active_lgbm_params.json")
+    if args.symbol:
+        sym_lower = args.symbol.lower()
+        active_path = Path(f"models/{sym_lower}/active_lgbm_params.json")
+    else:
+        active_path = Path("models/active_lgbm_params.json")
     if not args.no_baseline and study.best_value > baseline_score:
         shutil.copy(output_path, active_path)
         best_prec = study.best_trial.user_attrs.get("mean_precision", 0.0)

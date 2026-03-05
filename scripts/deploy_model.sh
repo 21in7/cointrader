@@ -1,25 +1,57 @@
 #!/usr/bin/env bash
 # 맥미니에서 학습한 모델을 LXC 컨테이너 볼륨 경로로 전송한다.
-# 사용법: bash scripts/deploy_model.sh [lgbm|mlx]
+# 사용법: bash scripts/deploy_model.sh [lgbm|mlx] [--symbol TRXUSDT]
 #
 # 예시:
-#   bash scripts/deploy_model.sh        # LightGBM (기본값)
-#   bash scripts/deploy_model.sh mlx    # MLX 신경망
+#   bash scripts/deploy_model.sh                    # LightGBM (기본값), models/ 루트
+#   bash scripts/deploy_model.sh mlx                # MLX 신경망, models/ 루트
+#   bash scripts/deploy_model.sh --symbol TRXUSDT   # LightGBM, models/trxusdt/
+#   bash scripts/deploy_model.sh mlx --symbol XRPUSDT  # MLX, models/xrpusdt/
 
 set -euo pipefail
 
-BACKEND="${1:-lgbm}"
+# ── 인자 파싱 ────────────────────────────────────────────────────────────────
+BACKEND="lgbm"
+SYMBOL_ARG=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --symbol)
+            SYMBOL_ARG="$2"
+            shift 2
+            ;;
+        mlx|lgbm)
+            BACKEND="$1"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
 LXC_HOST="root@10.1.10.24"
 LXC_MODELS_PATH="/root/cointrader/models"
-LOCAL_LOG="models/training_log.json"
+
+# ── 심볼별 경로 결정 ─────────────────────────────────────────────────────────
+if [ -n "$SYMBOL_ARG" ]; then
+    SYM_LOWER=$(echo "$SYMBOL_ARG" | tr '[:upper:]' '[:lower:]')
+    LOCAL_MODEL_DIR="models/$SYM_LOWER"
+    REMOTE_MODEL_DIR="$LXC_MODELS_PATH/$SYM_LOWER"
+    LOCAL_LOG="models/$SYM_LOWER/training_log.json"
+else
+    LOCAL_MODEL_DIR="models"
+    REMOTE_MODEL_DIR="$LXC_MODELS_PATH"
+    LOCAL_LOG="models/training_log.json"
+fi
 
 # ── 백엔드별 파일 목록 설정 ──────────────────────────────────────────────────
 # mlx: ONNX 파일만 전송 (Linux 서버는 onnxruntime으로 추론)
 # lgbm: pkl 파일 전송
 if [ "$BACKEND" = "mlx" ]; then
-  LOCAL_FILES=("models/mlx_filter.weights.onnx")
+  LOCAL_FILES=("$LOCAL_MODEL_DIR/mlx_filter.weights.onnx")
 else
-  LOCAL_FILES=("models/lgbm_filter.pkl")
+  LOCAL_FILES=("$LOCAL_MODEL_DIR/lgbm_filter.pkl")
 fi
 
 # ── 파일 존재 확인 ────────────────────────────────────────────────────────────
@@ -30,26 +62,26 @@ for f in "${LOCAL_FILES[@]}"; do
   fi
 done
 
-echo "=== 모델 전송 시작 (백엔드: ${BACKEND}) ==="
-echo "  대상: ${LXC_HOST}:${LXC_MODELS_PATH}"
+echo "=== 모델 전송 시작 (백엔드: ${BACKEND}${SYMBOL_ARG:+, 심볼: $SYMBOL_ARG}) ==="
+echo "  대상: ${LXC_HOST}:${REMOTE_MODEL_DIR}"
 
 # ── 원격 디렉터리 생성 + 백업 + 상대 백엔드 파일 제거 ───────────────────────
 # lgbm 배포 시: 기존 lgbm 백업 후 ONNX 파일 삭제 (ONNX 우선순위 때문에 lgbm이 무시되는 것 방지)
 # mlx 배포 시: lgbm 파일 삭제 (명시적으로 mlx만 사용)
 ssh "${LXC_HOST}" "
-  mkdir -p '${LXC_MODELS_PATH}'
+  mkdir -p '${REMOTE_MODEL_DIR}'
   if [ '$BACKEND' = 'lgbm' ]; then
-    if [ -f '${LXC_MODELS_PATH}/lgbm_filter.pkl' ]; then
-      cp '${LXC_MODELS_PATH}/lgbm_filter.pkl' '${LXC_MODELS_PATH}/lgbm_filter_prev.pkl'
+    if [ -f '${REMOTE_MODEL_DIR}/lgbm_filter.pkl' ]; then
+      cp '${REMOTE_MODEL_DIR}/lgbm_filter.pkl' '${REMOTE_MODEL_DIR}/lgbm_filter_prev.pkl'
       echo '  기존 lgbm 모델 백업 완료'
     fi
-    if [ -f '${LXC_MODELS_PATH}/mlx_filter.weights.onnx' ]; then
-      rm '${LXC_MODELS_PATH}/mlx_filter.weights.onnx'
+    if [ -f '${REMOTE_MODEL_DIR}/mlx_filter.weights.onnx' ]; then
+      rm '${REMOTE_MODEL_DIR}/mlx_filter.weights.onnx'
       echo '  ONNX 파일 제거 완료 (lgbm 우선 적용)'
     fi
   else
-    if [ -f '${LXC_MODELS_PATH}/lgbm_filter.pkl' ]; then
-      rm '${LXC_MODELS_PATH}/lgbm_filter.pkl'
+    if [ -f '${REMOTE_MODEL_DIR}/lgbm_filter.pkl' ]; then
+      rm '${REMOTE_MODEL_DIR}/lgbm_filter.pkl'
       echo '  lgbm 파일 제거 완료 (mlx 우선 적용)'
     fi
   fi
@@ -68,12 +100,12 @@ _send() {
 
 # ── 모델 파일 전송 ────────────────────────────────────────────────────────────
 for f in "${LOCAL_FILES[@]}"; do
-  _send "$f" "${LXC_MODELS_PATH}/$(basename "$f")"
+  _send "$f" "${REMOTE_MODEL_DIR}/$(basename "$f")"
 done
 
 # ── 학습 로그 전송 ────────────────────────────────────────────────────────────
 if [[ -f "$LOCAL_LOG" ]]; then
-  _send "$LOCAL_LOG" "${LXC_MODELS_PATH}/training_log.json"
+  _send "$LOCAL_LOG" "${REMOTE_MODEL_DIR}/training_log.json"
   echo "  학습 로그 전송 완료"
 fi
 

@@ -1,6 +1,6 @@
 # CoinTrader
 
-Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / MLX 신경망)를 결합하여 XRPUSDT(기본) 선물 포지션을 자동으로 진입·청산하며, Discord로 실시간 알림을 전송합니다.
+Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / MLX 신경망)를 결합하여 다중 심볼(XRP, TRX, DOGE 등) 선물 포지션을 동시에 자동 진입·청산하며, Discord로 실시간 알림을 전송합니다.
 
 > **아키텍처 문서**: 코드 구조, 레이어별 역할, MLOps 파이프라인, 동작 시나리오를 상세히 설명한 [ARCHITECTURE.md](./ARCHITECTURE.md)를 참고하세요.
 
@@ -19,7 +19,8 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / M
 - **Algo Order API 지원**: 계정 설정에 따라 STOP_MARKET/TAKE_PROFIT_MARKET 주문을 `/fapi/v1/algoOrder` 엔드포인트로 자동 전송 (오류 코드 -4120 대응)
 - **동적 증거금 비율**: 잔고 증가에 따라 선형 감소 (최대 50% → 최소 20%)
 - **반대 시그널 재진입**: 보유 포지션과 반대 신호 발생 시 즉시 청산 후 ML 필터 통과 시 반대 방향 재진입
-- **리스크 관리**: 트레이드당 리스크 비율, 최대 포지션 수, 일일 손실 한도(5%) 제어
+- **멀티심볼 동시 거래**: 심볼별 독립 봇 인스턴스를 `asyncio.gather()`로 병렬 실행. 공유 RiskManager로 글로벌 리스크 관리
+- **리스크 관리**: 트레이드당 리스크 비율, 최대 포지션 수, 동일 방향 포지션 제한(기본 2개), 일일 손실 한도(5%) 제어
 - **포지션 복구**: 봇 재시작 시 기존 포지션 자동 감지 및 상태 복원
 - **실시간 TP/SL 감지**: Binance User Data Stream으로 TP/SL 작동을 즉시 감지 (캔들 마감 대기 없음)
 - **순수익(Net PnL) 기록**: 바이낸스 `realizedProfit - commission`으로 정확한 순수익 계산
@@ -34,34 +35,40 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / M
 
 ```
 cointrader/
-├── main.py                    # 진입점
+├── main.py                    # 진입점 (심볼별 봇 인스턴스 생성 + asyncio.gather)
 ├── src/
-│   ├── bot.py                 # 메인 트레이딩 루프
-│   ├── config.py              # 환경변수 기반 설정
-│   ├── exchange.py            # Binance Futures API 클라이언트
-│   ├── data_stream.py         # WebSocket 15분봉 멀티심볼 스트림 (XRP/BTC/ETH)
+│   ├── bot.py                 # 메인 트레이딩 루프 (심볼별 독립 인스턴스)
+│   ├── config.py              # 환경변수 기반 설정 (symbols 리스트 지원)
+│   ├── exchange.py            # Binance Futures API 클라이언트 (심볼별 독립)
+│   ├── data_stream.py         # WebSocket 15분봉 멀티심볼 스트림
 │   ├── indicators.py          # 기술 지표 계산 및 신호 생성
 │   ├── ml_filter.py           # ML 필터 (ONNX 우선 / LightGBM 폴백 / 핫리로드)
-│   ├── ml_features.py         # ML 피처 빌더 (23개 피처)
+│   ├── ml_features.py         # ML 피처 빌더 (26개 피처)
 │   ├── mlx_filter.py          # MLX 신경망 필터 (Apple Silicon GPU 학습 + ONNX export)
 │   ├── label_builder.py       # 학습 레이블 생성
 │   ├── dataset_builder.py     # 벡터화 데이터셋 빌더 (학습용)
-│   ├── risk_manager.py        # 리스크 관리 (일일 손실 한도, 동적 증거금 비율)
+│   ├── risk_manager.py        # 공유 리스크 관리 (asyncio.Lock, 동일 방향 제한)
 │   ├── notifier.py            # Discord 웹훅 알림
 │   └── logger_setup.py        # Loguru 로거 설정
 ├── scripts/
-│   ├── fetch_history.py       # 과거 데이터 수집 (XRP/BTC/ETH + OI/펀딩비, Upsert 지원)
-│   ├── train_model.py         # LightGBM 모델 학습 (CPU)
+│   ├── fetch_history.py       # 과거 데이터 수집 (--symbol 단일 / --symbols 다중)
+│   ├── train_model.py         # LightGBM 모델 학습 (--symbol 지원)
 │   ├── train_mlx_model.py     # MLX 신경망 학습 (Apple Silicon GPU)
-│   ├── train_and_deploy.sh    # 전체 파이프라인 (수집 → 학습 → LXC 배포)
-│   ├── tune_hyperparams.py    # Optuna 하이퍼파라미터 자동 탐색 (수동 트리거)
-│   ├── deploy_model.sh        # 모델 파일 LXC 서버 전송
+│   ├── train_and_deploy.sh    # 전체 파이프라인 (--symbol / --all 지원)
+│   ├── tune_hyperparams.py    # Optuna 하이퍼파라미터 자동 탐색 (--symbol 지원)
+│   ├── deploy_model.sh        # 모델 파일 LXC 서버 전송 (--symbol 지원)
 │   └── run_tests.sh           # 전체 테스트 실행
 ├── dashboard/
 │   ├── api/                   # FastAPI 백엔드 (로그 파서 + REST API)
 │   └── ui/                    # React 프론트엔드 (Vite + Recharts)
-├── models/                    # 학습된 모델 저장 (.pkl / .onnx)
-├── data/                      # 과거 데이터 캐시 (.parquet)
+├── models/                    # 학습된 모델 저장 (심볼별 하위 디렉토리)
+│   ├── xrpusdt/               #   models/xrpusdt/lgbm_filter.pkl
+│   ├── trxusdt/               #   models/trxusdt/lgbm_filter.pkl
+│   └── dogeusdt/              #   models/dogeusdt/lgbm_filter.pkl
+├── data/                      # 과거 데이터 캐시 (심볼별 하위 디렉토리)
+│   ├── xrpusdt/               #   data/xrpusdt/combined_15m.parquet
+│   ├── trxusdt/               #   data/trxusdt/combined_15m.parquet
+│   └── dogeusdt/              #   data/dogeusdt/combined_15m.parquet
 ├── logs/                      # 로그 파일
 ├── docs/plans/                # 설계 문서 및 구현 플랜
 ├── tests/                     # 테스트 코드
@@ -86,8 +93,10 @@ cp .env.example .env
 ```env
 BINANCE_API_KEY=your_api_key
 BINANCE_API_SECRET=your_api_secret
-SYMBOL=XRPUSDT
+SYMBOLS=XRPUSDT,TRXUSDT,DOGEUSDT
+CORRELATION_SYMBOLS=BTCUSDT,ETHUSDT
 LEVERAGE=10
+MAX_SAME_DIRECTION=2
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
 
@@ -120,14 +129,17 @@ docker compose logs -f cointrader
 
 맥미니에서 데이터 수집 → 학습 → LXC 배포까지 한 번에 실행합니다.
 
-> **자동 분기**: `data/combined_15m.parquet`가 없으면 1년치(365일) 전체 수집, 있으면 35일치 Upsert로 자동 전환합니다. 서버 이전이나 데이터 유실 시에도 사람의 개입 없이 자동 복구됩니다.
+> **자동 분기**: `data/{symbol}/combined_15m.parquet`가 없으면 1년치(365일) 전체 수집, 있으면 35일치 Upsert로 자동 전환합니다. 서버 이전이나 데이터 유실 시에도 사람의 개입 없이 자동 복구됩니다.
 
 ```bash
-# LightGBM + Walk-Forward 5폴드 (기본값)
+# 전체 심볼 학습 + 배포 (SYMBOLS 환경변수의 모든 심볼)
 bash scripts/train_and_deploy.sh
 
-# MLX GPU 학습 + Walk-Forward 5폴드
-bash scripts/train_and_deploy.sh mlx
+# 단일 심볼만 학습 + 배포
+bash scripts/train_and_deploy.sh --symbol TRXUSDT
+
+# MLX GPU 학습 (단일 심볼)
+bash scripts/train_and_deploy.sh mlx --symbol XRPUSDT
 
 # LightGBM + Walk-Forward 3폴드
 bash scripts/train_and_deploy.sh lgbm 3
@@ -139,34 +151,30 @@ bash scripts/train_and_deploy.sh lgbm 0
 ### 단계별 수동 실행
 
 ```bash
-# 1. 과거 데이터 수집 (XRP/BTC/ETH 3심볼, 15분봉, 1년치 + OI/펀딩비)
-# 기본값: Upsert 활성화 — 기존 parquet의 oi_change/funding_rate=0 구간을 실제 값으로 채움
+# 1. 과거 데이터 수집 (단일 심볼 — 상관관계 심볼 자동 추가)
+python scripts/fetch_history.py --symbol TRXUSDT --interval 15m --days 365
+# → data/trxusdt/combined_15m.parquet 에 저장
+
+# 1-alt. 명시적 심볼 지정 (기존 방식도 지원)
 python scripts/fetch_history.py \
     --symbols XRPUSDT BTCUSDT ETHUSDT \
     --interval 15m \
     --days 365 \
     --output data/combined_15m.parquet
 
-# 기존 파일을 완전히 덮어쓰려면 --no-upsert 플래그 사용
-python scripts/fetch_history.py \
-    --symbols XRPUSDT BTCUSDT ETHUSDT \
-    --interval 15m \
-    --days 365 \
-    --output data/combined_15m.parquet \
-    --no-upsert
-
-# 2-A. LightGBM 모델 학습 (CPU)
-python scripts/train_model.py --data data/combined_15m.parquet
+# 2-A. LightGBM 모델 학습 (심볼별)
+python scripts/train_model.py --symbol TRXUSDT
+# → models/trxusdt/lgbm_filter.pkl 에 저장
 
 # 2-B. MLX 신경망 학습 (Apple Silicon GPU)
-python scripts/train_mlx_model.py --data data/combined_15m.parquet
+python scripts/train_mlx_model.py --data data/xrpusdt/combined_15m.parquet
 
 # 3. LXC 서버에 모델 배포
-bash scripts/deploy_model.sh        # LightGBM
-bash scripts/deploy_model.sh mlx    # MLX (ONNX)
+bash scripts/deploy_model.sh --symbol XRPUSDT
+bash scripts/deploy_model.sh mlx --symbol XRPUSDT
 ```
 
-학습된 모델은 `models/lgbm_filter.pkl` (LightGBM) 또는 `models/mlx_filter.weights.onnx` (MLX) 에 저장됩니다.
+학습된 모델은 `models/{symbol}/lgbm_filter.pkl` (LightGBM) 또는 `models/{symbol}/mlx_filter.weights.onnx` (MLX) 에 저장됩니다. 심볼별 디렉토리가 없으면 `models/` 루트로 폴백합니다.
 
 > **모델 핫리로드**: 봇이 실행 중일 때 모델 파일을 교체하면, 다음 캔들 마감 시 자동으로 감지해 리로드합니다. 봇 재시작이 필요 없습니다.
 
@@ -176,17 +184,17 @@ bash scripts/deploy_model.sh mlx    # MLX (ONNX)
 결과를 확인하고 직접 승인한 후 재학습에 반영하는 **수동 트리거** 방식입니다.
 
 ```bash
-# 기본 실행 (50 trials, 5폴드 Walk-Forward, ~30분)
-python scripts/tune_hyperparams.py
+# 심볼별 튜닝 (50 trials, 5폴드 Walk-Forward, ~30분)
+python scripts/tune_hyperparams.py --symbol XRPUSDT
 
 # 빠른 테스트 (10 trials, 3폴드, ~5분)
-python scripts/tune_hyperparams.py --trials 10 --folds 3
+python scripts/tune_hyperparams.py --symbol TRXUSDT --trials 10 --folds 3
 
 # 베이스라인 측정 없이 탐색만
-python scripts/tune_hyperparams.py --no-baseline
+python scripts/tune_hyperparams.py --symbol XRPUSDT --no-baseline
 ```
 
-결과는 `models/tune_results_YYYYMMDD_HHMMSS.json`에 저장됩니다.
+결과는 `models/{symbol}/tune_results_YYYYMMDD_HHMMSS.json`에 저장됩니다.
 콘솔에 Best Params, 베이스라인 대비 개선폭, 폴드별 AUC를 출력하므로 직접 확인 후 판단하세요.
 
 > **주의**: Optuna가 찾은 파라미터는 과적합 위험이 있습니다. Best Params를 `train_model.py`에 반영하기 전에 반드시 폴드별 AUC 분산과 개선폭을 검토하세요.
@@ -305,8 +313,10 @@ pytest tests/ -v
 |------|--------|------|
 | `BINANCE_API_KEY` | — | Binance API 키 |
 | `BINANCE_API_SECRET` | — | Binance API 시크릿 |
-| `SYMBOL` | `XRPUSDT` | 거래 심볼 |
+| `SYMBOLS` | `XRPUSDT` | 거래 심볼 목록 (쉼표 구분, 예: `XRPUSDT,TRXUSDT,DOGEUSDT`) |
+| `CORRELATION_SYMBOLS` | `BTCUSDT,ETHUSDT` | 상관관계 심볼 (BTC/ETH 수익률·상대강도 피처용) |
 | `LEVERAGE` | `10` | 레버리지 배수 |
+| `MAX_SAME_DIRECTION` | `2` | 동일 방향 최대 포지션 수 (LONG 2개면 3번째 LONG 차단) |
 | `DISCORD_WEBHOOK_URL` | — | Discord 웹훅 URL |
 | `MARGIN_MAX_RATIO` | `0.50` | 최대 증거금 비율 (잔고 대비 50%) |
 | `MARGIN_MIN_RATIO` | `0.20` | 최소 증거금 비율 (잔고 대비 20%) |
