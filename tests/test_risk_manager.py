@@ -29,10 +29,13 @@ def test_trading_allowed_normal(config):
     assert rm.is_trading_allowed() is True
 
 
-def test_position_size_capped(config):
+@pytest.mark.asyncio
+async def test_position_size_capped(config):
     rm = RiskManager(config, max_daily_loss_pct=0.05)
-    rm.open_positions = ["pos1", "pos2", "pos3"]
-    assert rm.can_open_new_position() is False
+    await rm.register_position("XRPUSDT", "LONG")
+    await rm.register_position("TRXUSDT", "SHORT")
+    await rm.register_position("DOGEUSDT", "LONG")
+    assert await rm.can_open_new_position("SOLUSDT", "SHORT") is False
 
 
 # --- 동적 증거금 비율 테스트 ---
@@ -81,3 +84,54 @@ def test_ratio_clamped_at_max(risk):
     """잔고가 기준보다 작아도 최대 비율(50%) 초과하지 않음"""
     ratio = risk.get_dynamic_margin_ratio(5.0)
     assert ratio == pytest.approx(0.50, abs=1e-6)
+
+
+# --- 멀티심볼 공유 RiskManager 테스트 ---
+
+@pytest.fixture
+def shared_risk(config):
+    config.max_same_direction = 2
+    return RiskManager(config)
+
+
+@pytest.mark.asyncio
+async def test_can_open_new_position_async(shared_risk):
+    """비동기 포지션 오픈 허용 체크."""
+    assert await shared_risk.can_open_new_position("XRPUSDT", "LONG") is True
+
+
+@pytest.mark.asyncio
+async def test_register_and_close_position(shared_risk):
+    """포지션 등록 후 닫기."""
+    await shared_risk.register_position("XRPUSDT", "LONG")
+    assert "XRPUSDT" in shared_risk.open_positions
+    await shared_risk.close_position("XRPUSDT", pnl=1.5)
+    assert "XRPUSDT" not in shared_risk.open_positions
+    assert shared_risk.daily_pnl == 1.5
+
+
+@pytest.mark.asyncio
+async def test_same_symbol_blocked(shared_risk):
+    """같은 심볼 중복 진입 차단."""
+    await shared_risk.register_position("XRPUSDT", "LONG")
+    assert await shared_risk.can_open_new_position("XRPUSDT", "SHORT") is False
+
+
+@pytest.mark.asyncio
+async def test_max_same_direction_limit(shared_risk):
+    """같은 방향 2개 초과 차단."""
+    await shared_risk.register_position("XRPUSDT", "LONG")
+    await shared_risk.register_position("TRXUSDT", "LONG")
+    # 3번째 LONG 차단
+    assert await shared_risk.can_open_new_position("DOGEUSDT", "LONG") is False
+    # SHORT은 허용
+    assert await shared_risk.can_open_new_position("DOGEUSDT", "SHORT") is True
+
+
+@pytest.mark.asyncio
+async def test_max_positions_global_limit(shared_risk):
+    """전체 포지션 수 한도 초과 차단."""
+    shared_risk.config.max_positions = 2
+    await shared_risk.register_position("XRPUSDT", "LONG")
+    await shared_risk.register_position("TRXUSDT", "SHORT")
+    assert await shared_risk.can_open_new_position("DOGEUSDT", "LONG") is False
