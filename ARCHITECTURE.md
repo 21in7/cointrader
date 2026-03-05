@@ -17,7 +17,22 @@
 
 ## 1. 시스템 오버뷰
 
-CoinTrader는 **Binance Futures 자동매매 봇**입니다. 기술 지표 신호를 1차 필터로, LightGBM(또는 MLX 신경망) 모델을 2차 필터로 사용하여 XRPUSDT 선물 포지션을 자동 진입·청산합니다.
+CoinTrader는 **Binance Futures 자동매매 봇**입니다. 기술 지표 신호를 1차 필터로, LightGBM(또는 MLX 신경망) 모델을 2차 필터로 사용하여 다중 심볼(XRP, TRX, DOGE 등) 선물 포지션을 동시에 자동 진입·청산합니다.
+
+### 멀티심볼 아키텍처
+
+```
+main.py
+  └─ Config (SYMBOLS=XRPUSDT,TRXUSDT,DOGEUSDT)
+  └─ RiskManager (공유 싱글턴, asyncio.Lock)
+  └─ asyncio.gather(
+       TradingBot(symbol="XRPUSDT", risk=shared_risk),
+       TradingBot(symbol="TRXUSDT", risk=shared_risk),
+       TradingBot(symbol="DOGEUSDT", risk=shared_risk),
+     )
+```
+
+각 봇은 독립적인 `Exchange`, `MLFilter`, `DataStream`을 소유합니다. `RiskManager`만 공유 싱글턴으로 글로벌 리스크(일일 손실 한도, 동일 방향 제한, 최대 포지션 수)를 관리합니다.
 
 ### 전체 데이터 파이프라인 흐름도
 
@@ -30,11 +45,11 @@ flowchart TD
     end
 
     subgraph 실시간봇["실시간 봇 (bot.py — asyncio)"]
-        DS["data_stream.py<br/>MultiSymbolStream<br/>캔들 버퍼 (deque 200개)"]
+        DS["data_stream.py<br/>MultiSymbolStream (심볼별)<br/>캔들 버퍼 (deque 200개)"]
         IND["indicators.py<br/>기술 지표 계산<br/>RSI·MACD·BB·EMA·StochRSI·ATR·ADX"]
         MF["ml_features.py<br/>23개 피처 추출<br/>(XRP 13 + BTC/ETH 8 + OI/FR 2)"]
         ML["ml_filter.py<br/>MLFilter<br/>ONNX 우선 / LightGBM 폴백<br/>확률 ≥ 0.60 시 진입 허용"]
-        RM["risk_manager.py<br/>RiskManager<br/>일일 손실 5% 한도<br/>동적 증거금 비율"]
+        RM["risk_manager.py<br/>RiskManager (공유 싱글턴)<br/>일일 손실 5% 한도<br/>동적 증거금 비율<br/>동일 방향 제한"]
         EX["exchange.py<br/>BinanceFuturesClient<br/>주문·레버리지·잔고 API"]
         UDS["user_data_stream.py<br/>UserDataStream<br/>TP/SL 즉시 감지"]
         NT["notifier.py<br/>DiscordNotifier<br/>진입·청산·오류 알림"]
@@ -119,17 +134,17 @@ flowchart TD
 
 **파일:** `src/data_stream.py`
 
-봇이 시작되면 가장 먼저 실행되는 레이어입니다. Binance Combined WebSocket 단일 연결로 XRP·BTC·ETH 3개 심볼의 15분봉 캔들을 동시에 수신합니다.
+각 봇 인스턴스가 시작되면 가장 먼저 실행되는 레이어입니다. Binance Combined WebSocket 단일 연결로 주 거래 심볼 + 상관관계 심볼(BTC/ETH)의 15분봉 캔들을 동시에 수신합니다.
 
 **핵심 동작:**
 
 1. **프리로드**: 봇 시작 시 REST API로 과거 캔들 200개를 `deque`에 즉시 채웁니다. EMA50 안정화에 필요한 최소 캔들(100개)을 확보하여 첫 캔들부터 신호를 계산할 수 있게 합니다.
 2. **버퍼 관리**: 심볼별 `deque(maxlen=200)`에 마감된 캔들만 추가합니다. 미마감 캔들(`is_closed=False`)은 무시합니다.
-3. **콜백 트리거**: XRP(주 심볼) 캔들이 마감되면 `bot._on_candle_closed()`를 호출합니다. BTC·ETH는 버퍼에만 쌓이고 콜백을 트리거하지 않습니다.
+3. **콜백 트리거**: 주 거래 심볼 캔들이 마감되면 `bot._on_candle_closed()`를 호출합니다. 상관관계 심볼(BTC·ETH)은 버퍼에만 쌓이고 콜백을 트리거하지 않습니다.
 
 ```
-Combined WebSocket
-  ├── xrpusdt@kline_15m  →  buffers["xrpusdt"]  →  on_candle() 호출
+예: TRXUSDT 봇의 Combined WebSocket
+  ├── trxusdt@kline_15m  →  buffers["trxusdt"]  →  on_candle() 호출
   ├── btcusdt@kline_15m  →  buffers["btcusdt"]  (콜백 없음)
   └── ethusdt@kline_15m  →  buffers["ethusdt"]  (콜백 없음)
 ```
@@ -252,10 +267,14 @@ SL/TP 주문은 `/fapi/v1/algoOrder` 엔드포인트로 전송됩니다 (일반 
 | 제어 항목 | 기준 |
 |----------|------|
 | 일일 최대 손실 | 기준 잔고의 5% |
-| 최대 동시 포지션 | 3개 |
+| 최대 동시 포지션 | 3개 (전체 심볼 합산) |
+| 동일 방향 제한 | 2개 (LONG 2개면 3번째 LONG 차단) |
+| 같은 심볼 중복 | 차단 (1심볼 1포지션) |
 | 최소 명목금액 | $5 USDT |
 
 **반대 시그널 재진입:** 보유 포지션과 반대 방향 신호 발생 시 기존 포지션을 즉시 청산하고, ML 필터 통과 시 반대 방향으로 재진입합니다. 재진입 중 User Data Stream 콜백이 신규 포지션 상태를 덮어쓰지 않도록 `_is_reentering` 플래그로 보호합니다.
+
+**마진 균등 배분:** 멀티심볼 모드에서 각 봇은 전체 잔고를 심볼 수로 나눈 금액만큼만 사용합니다 (`balance / len(symbols)`). 공유 `RiskManager`의 `asyncio.Lock`으로 동시 포지션 등록/해제 시 경합 조건을 방지합니다.
 
 ---
 
@@ -272,7 +291,7 @@ Binance `ORDER_TRADE_UPDATE` 웹소켓 이벤트를 구독하여 TP/SL 체결을
 ```
 이벤트 필터링 조건:
   e == "ORDER_TRADE_UPDATE"
-  AND s == "XRPUSDT"          ← 심볼 필터
+  AND s == self.symbol         ← 심볼 필터 (봇별 독립)
   AND x == "TRADE"            ← 실제 체결
   AND X == "FILLED"           ← 완전 체결
   AND (reduceOnly OR order_type in {STOP_MARKET, TAKE_PROFIT_MARKET} OR rp != 0)
@@ -360,11 +379,11 @@ reg_alpha:         1e-4 ~ 1.0   (log scale)
 reg_lambda:        1e-4 ~ 1.0   (log scale)
 ```
 
-결과는 `models/tune_results_YYYYMMDD_HHMMSS.json`에 저장됩니다.
+결과는 `models/{symbol}/tune_results_YYYYMMDD_HHMMSS.json`에 저장됩니다.
 
 #### Step 2: Active Config 패턴으로 파라미터 승인
 
-Optuna가 찾은 파라미터는 **자동으로 적용되지 않습니다.** 사람이 결과를 검토하고 직접 `models/active_lgbm_params.json`을 업데이트해야 합니다.
+Optuna가 찾은 파라미터는 **자동으로 적용되지 않습니다.** 사람이 결과를 검토하고 직접 `models/{symbol}/active_lgbm_params.json`을 업데이트해야 합니다.
 
 ```json
 {
@@ -390,18 +409,20 @@ Optuna가 찾은 파라미터는 **자동으로 적용되지 않습니다.** 사
 `scripts/train_and_deploy.sh`는 3단계를 자동으로 실행합니다:
 
 ```
-[1/3] 데이터 수집 (fetch_history.py)
-  - 기존 parquet 없음 → 1년치(365일) 전체 수집
-  - 기존 parquet 있음 → 35일치 Upsert (OI/펀딩비 0.0 구간 보충)
+[심볼별 반복] --symbol 지정 시 단일 심볼, --all 시 전체 심볼 순차 처리
 
-[2/3] 모델 학습 (train_model.py)
-  - active_lgbm_params.json 파라미터 로드
+[1/3] 데이터 수집 (fetch_history.py --symbol {SYM})
+  - data/{symbol}/combined_15m.parquet 없음 → 1년치(365일) 전체 수집
+  - 있음 → 35일치 Upsert (OI/펀딩비 0.0 구간 보충)
+
+[2/3] 모델 학습 (train_model.py --symbol {SYM})
+  - models/{symbol}/active_lgbm_params.json 파라미터 로드
   - 벡터화 데이터셋 생성 (dataset_builder.py)
   - Walk-Forward 5폴드 검증 후 최종 모델 저장
-  - 학습 로그: models/training_log.json
+  - 학습 로그: models/{symbol}/training_log.json
 
-[3/3] LXC 배포 (deploy_model.sh)
-  - rsync로 lgbm_filter.pkl → LXC 서버 전송
+[3/3] LXC 배포 (deploy_model.sh --symbol {SYM})
+  - rsync로 models/{symbol}/lgbm_filter.pkl → LXC 서버 전송
   - 기존 모델 자동 백업 (lgbm_filter_prev.pkl)
   - ONNX 파일 충돌 방지 (우선순위 보장)
 ```
@@ -547,7 +568,7 @@ sequenceDiagram
 
 ### 5.1 테스트 파일 구성
 
-`tests/` 폴더에 12개 테스트 파일, 총 **81개의 테스트 케이스**가 작성되어 있습니다.
+`tests/` 폴더에 14개 테스트 파일, 총 **99개의 테스트 케이스**가 작성되어 있습니다.
 
 ```bash
 pytest tests/ -v          # 전체 실행
@@ -562,14 +583,14 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `test_indicators.py` | `src/indicators.py` | 7 | RSI 범위(0~100), MACD 컬럼 존재, 볼린저 밴드 상하단 대소관계, 신호 반환값 유효성, ADX 컬럼 존재, ADX<25 횡보장 차단, ADX NaN 폴스루 |
 | `test_ml_features.py` | `src/ml_features.py` | 11 | 23개 피처 수, BTC/ETH 포함 시 피처 수, RS 분모 0 처리, NaN 없음, side 인코딩, OI/펀딩비 파라미터 반영 |
 | `test_ml_filter.py` | `src/ml_filter.py` | 5 | 모델 없을 때 폴백 허용, 임계값 이상/미만 판단, 핫리로드 후 상태 변화 |
-| `test_risk_manager.py` | `src/risk_manager.py` | 8 | 일일 손실 한도 초과 차단, 최대 포지션 수 제한, 동적 증거금 비율 상한/하한 클램핑 |
+| `test_risk_manager.py` | `src/risk_manager.py` | 13 | 일일 손실 한도 초과 차단, 최대 포지션 수 제한, 동일 방향 제한, 심볼 중복 차단, 비동기 포지션 등록/해제, 동적 증거금 비율 상한/하한 클램핑 |
 | `test_exchange.py` | `src/exchange.py` | 8 | 수량 계산(기본/최소명목금액/잔고0), OI·펀딩비 조회 정상/오류 시 반환값 |
 | `test_data_stream.py` | `src/data_stream.py` | 6 | 3심볼 버퍼 존재, 빈 버퍼 None 반환, 캔들 파싱, 마감 캔들 콜백 호출, 프리로드 200개 |
 | `test_label_builder.py` | `src/label_builder.py` | 4 | LONG TP 도달 → 1, LONG SL 도달 → 0, 미결 → None, SHORT TP 도달 → 1 |
 | `test_dataset_builder.py` | `src/dataset_builder.py` | 9 | DataFrame 반환, 필수 컬럼 존재, 레이블 이진값, BTC/ETH 포함 시 23개 피처, inf/NaN 없음, OI nan 마스킹, RS 분모 0 처리 |
 | `test_mlx_filter.py` | `src/mlx_filter.py` | 5 | GPU 디바이스 확인, 학습 전 예측 형태, 학습 후 유효 확률, NaN 피처 처리, 저장/로드 후 동일 예측 |
 | `test_fetch_history.py` | `scripts/fetch_history.py` | 5 | OI=0 구간 Upsert, 신규 행 추가, 기존 비0값 보존, 파일 없을 때 신규 반환, 타임스탬프 오름차순 정렬 |
-| `test_config.py` | `src/config.py` | 2 | 환경변수 로드, 동적 증거금 파라미터 로드 |
+| `test_config.py` | `src/config.py` | 6 | 환경변수 로드, 동적 증거금 파라미터 로드, `symbols` 리스트, `correlation_symbols`, `max_same_direction`, SYMBOL→symbols 폴백 |
 
 > `test_mlx_filter.py`는 Apple Silicon(`mlx` 패키지)이 없는 환경에서 자동 스킵됩니다.
 
@@ -588,6 +609,8 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | 레이블 생성 (SL/TP 룩어헤드) | ✅ | ✅ | `test_label_builder` + `test_dataset_builder` (전체 파이프라인 실제 호출) |
 | 벡터화 데이터셋 빌더 | ✅ | ✅ | `test_dataset_builder` |
 | 동적 증거금 비율 계산 | ✅ | — | `test_risk_manager` |
+| 동일 방향 포지션 제한 | ✅ | — | `test_risk_manager` |
+| 심볼 중복 진입 차단 | ✅ | — | `test_risk_manager` |
 | 일일 손실 한도 제어 | ✅ | — | `test_risk_manager` |
 | 포지션 수량 계산 | ✅ | — | `test_exchange` |
 | OI/펀딩비 API 조회 (정상/오류) | ✅ | ✅ | `test_exchange` + `test_bot` (`process_candle` → OI/펀딩비 → `build_features` 전달) |
@@ -622,25 +645,25 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 
 | 파일 | 레이어 | 역할 |
 |------|--------|------|
-| `main.py` | — | 진입점. `Config` 로드 후 `TradingBot.run()` 실행 |
-| `src/bot.py` | 오케스트레이터 | 모든 레이어를 조율하는 메인 트레이딩 루프 |
-| `src/config.py` | — | 환경변수 기반 설정 (`@dataclass`) |
+| `main.py` | — | 진입점. 심볼별 `TradingBot` 생성 + 공유 `RiskManager` + `asyncio.gather()` |
+| `src/bot.py` | 오케스트레이터 | 심볼별 독립 트레이딩 루프 (symbol, risk 주입) |
+| `src/config.py` | — | 환경변수 기반 설정 (`symbols` 리스트, `correlation_symbols`) |
 | `src/data_stream.py` | Data | Combined WebSocket 캔들 수신·버퍼 관리 |
 | `src/indicators.py` | Signal | 기술 지표 계산 및 복합 신호 생성 |
 | `src/ml_features.py` | ML Filter | 23개 ML 피처 추출 |
 | `src/ml_filter.py` | ML Filter | ONNX/LightGBM 모델 로드·추론·핫리로드 |
 | `src/mlx_filter.py` | ML Filter | Apple Silicon GPU 학습 + ONNX export |
-| `src/exchange.py` | Execution | Binance Futures REST API 클라이언트 |
-| `src/risk_manager.py` | Risk | 일일 손실 한도·동적 증거금 비율·포지션 수 제어 |
+| `src/exchange.py` | Execution | Binance Futures REST API 클라이언트 (심볼별 독립) |
+| `src/risk_manager.py` | Risk | 공유 싱글턴 — 일일 손실 한도·동일 방향 제한·동적 증거금 비율 |
 | `src/user_data_stream.py` | Event | User Data Stream TP/SL 즉시 감지 |
 | `src/notifier.py` | Alert | Discord 웹훅 알림 |
 | `src/label_builder.py` | MLOps | 학습 레이블 생성 (ATR SL/TP 룩어헤드) |
 | `src/dataset_builder.py` | MLOps | 벡터화 데이터셋 빌더 (학습용) |
 | `src/logger_setup.py` | — | Loguru 로거 설정 |
-| `scripts/fetch_history.py` | MLOps | 과거 캔들 + OI/펀딩비 수집 (Parquet Upsert) |
-| `scripts/train_model.py` | MLOps | LightGBM 모델 학습 (CPU) |
+| `scripts/fetch_history.py` | MLOps | 과거 캔들 + OI/펀딩비 수집 (`--symbol` 지원) |
+| `scripts/train_model.py` | MLOps | LightGBM 모델 학습 (`--symbol` 지원) |
 | `scripts/train_mlx_model.py` | MLOps | MLX 신경망 학습 (Apple Silicon GPU) |
-| `scripts/tune_hyperparams.py` | MLOps | Optuna 하이퍼파라미터 탐색 (수동 트리거) |
-| `scripts/train_and_deploy.sh` | MLOps | 전체 파이프라인 (수집→학습→배포) |
-| `scripts/deploy_model.sh` | MLOps | 모델 파일 LXC 서버 전송 |
-| `models/active_lgbm_params.json` | MLOps | 승인된 LightGBM 파라미터 (Active Config) |
+| `scripts/tune_hyperparams.py` | MLOps | Optuna 하이퍼파라미터 탐색 (`--symbol` 지원) |
+| `scripts/train_and_deploy.sh` | MLOps | 전체 파이프라인 (`--symbol` / `--all` 지원) |
+| `scripts/deploy_model.sh` | MLOps | 모델 파일 LXC 서버 전송 (`--symbol` 지원) |
+| `models/{symbol}/active_lgbm_params.json` | MLOps | 심볼별 승인된 LightGBM 파라미터 (Active Config) |
