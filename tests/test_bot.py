@@ -37,6 +37,25 @@ def sample_df():
     })
 
 
+def test_bot_accepts_symbol_and_risk(config):
+    """TradingBot이 symbol과 risk를 외부에서 주입받을 수 있다."""
+    from src.risk_manager import RiskManager
+    risk = RiskManager(config)
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config, symbol="TRXUSDT", risk=risk)
+    assert bot.symbol == "TRXUSDT"
+    assert bot.risk is risk
+
+
+def test_bot_stream_uses_injected_symbol(config):
+    """봇의 stream이 주입된 심볼을 primary로 사용한다."""
+    from src.risk_manager import RiskManager
+    risk = RiskManager(config)
+    with patch("src.bot.BinanceFuturesClient"):
+        bot = TradingBot(config, symbol="DOGEUSDT", risk=risk)
+    assert "dogeusdt" in bot.stream.buffers
+
+
 def test_bot_uses_multi_symbol_stream(config):
     from src.data_stream import MultiSymbolStream
     with patch("src.bot.BinanceFuturesClient"):
@@ -64,6 +83,12 @@ async def test_bot_processes_signal(config, sample_df):
     bot.exchange.calculate_quantity = MagicMock(return_value=100.0)
     bot.exchange.MIN_NOTIONAL = 5.0
 
+    bot.risk = MagicMock()
+    bot.risk.is_trading_allowed.return_value = True
+    bot.risk.can_open_new_position = AsyncMock(return_value=True)
+    bot.risk.register_position = AsyncMock()
+    bot.risk.get_dynamic_margin_ratio.return_value = 0.50
+
     with patch("src.bot.Indicators") as MockInd:
         mock_ind = MagicMock()
         mock_ind.calculate_all.return_value = sample_df
@@ -82,7 +107,7 @@ async def test_close_and_reenter_calls_open_when_ml_passes(config, sample_df):
     bot._close_position = AsyncMock()
     bot._open_position = AsyncMock()
     bot.risk = MagicMock()
-    bot.risk.can_open_new_position.return_value = True
+    bot.risk.can_open_new_position = AsyncMock(return_value=True)
     bot.ml_filter = MagicMock()
     bot.ml_filter.is_model_loaded.return_value = True
     bot.ml_filter.should_enter.return_value = True
@@ -102,6 +127,8 @@ async def test_close_and_reenter_skips_open_when_ml_blocks(config, sample_df):
 
     bot._close_position = AsyncMock()
     bot._open_position = AsyncMock()
+    bot.risk = MagicMock()
+    bot.risk.can_open_new_position = AsyncMock(return_value=True)
     bot.ml_filter = MagicMock()
     bot.ml_filter.is_model_loaded.return_value = True
     bot.ml_filter.should_enter.return_value = False
@@ -122,7 +149,7 @@ async def test_close_and_reenter_skips_open_when_max_positions_reached(config, s
     bot._close_position = AsyncMock()
     bot._open_position = AsyncMock()
     bot.risk = MagicMock()
-    bot.risk.can_open_new_position.return_value = False
+    bot.risk.can_open_new_position = AsyncMock(return_value=False)
 
     position = {"positionAmt": "100", "entryPrice": "0.5", "markPrice": "0.52"}
     await bot._close_and_reenter(position, "SHORT", sample_df)
@@ -205,6 +232,12 @@ async def test_process_candle_fetches_oi_and_funding(config, sample_df):
     bot.exchange.set_leverage = AsyncMock()
     bot.exchange.get_open_interest = AsyncMock(return_value=5000000.0)
     bot.exchange.get_funding_rate = AsyncMock(return_value=0.0001)
+
+    bot.risk = MagicMock()
+    bot.risk.is_trading_allowed.return_value = True
+    bot.risk.can_open_new_position = AsyncMock(return_value=True)
+    bot.risk.register_position = AsyncMock()
+    bot.risk.get_dynamic_margin_ratio.return_value = 0.50
 
     # 신호를 LONG으로 강제해 build_features가 반드시 호출되도록 함
     with patch("src.bot.Indicators") as mock_ind_cls:

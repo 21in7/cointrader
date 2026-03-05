@@ -14,11 +14,12 @@ from src.user_data_stream import UserDataStream
 
 
 class TradingBot:
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, symbol: str = None, risk: RiskManager = None):
         self.config = config
-        self.exchange = BinanceFuturesClient(config)
+        self.symbol = symbol or config.symbol
+        self.exchange = BinanceFuturesClient(config, symbol=self.symbol)
         self.notifier = DiscordNotifier(config.discord_webhook_url)
-        self.risk = RiskManager(config)
+        self.risk = risk or RiskManager(config)
         self.ml_filter = MLFilter(threshold=config.ml_threshold)
         self.current_trade_side: str | None = None  # "LONG" | "SHORT"
         self._entry_price: float | None = None
@@ -28,17 +29,17 @@ class TradingBot:
         self._oi_history: deque = deque(maxlen=5)
         self._latest_ret_1: float = 0.0
         self.stream = MultiSymbolStream(
-            symbols=[config.symbol, "BTCUSDT", "ETHUSDT"],
+            symbols=[self.symbol] + config.correlation_symbols,
             interval="15m",
             on_candle=self._on_candle_closed,
         )
 
     async def _on_candle_closed(self, candle: dict):
-        xrp_df = self.stream.get_dataframe(self.config.symbol)
+        primary_df = self.stream.get_dataframe(self.symbol)
         btc_df = self.stream.get_dataframe("BTCUSDT")
         eth_df = self.stream.get_dataframe("ETHUSDT")
-        if xrp_df is not None:
-            await self.process_candle(xrp_df, btc_df=btc_df, eth_df=eth_df)
+        if primary_df is not None:
+            await self.process_candle(primary_df, btc_df=btc_df, eth_df=eth_df)
 
     async def _recover_position(self) -> None:
         """재시작 시 바이낸스에서 현재 포지션을 조회하여 상태 복구."""
@@ -134,8 +135,8 @@ class TradingBot:
 
         if position is None and raw_signal != "HOLD":
             self.current_trade_side = None
-            if not self.risk.can_open_new_position():
-                logger.info("최대 포지션 수 도달")
+            if not await self.risk.can_open_new_position(self.symbol, raw_signal):
+                logger.info(f"[{self.symbol}] 포지션 오픈 불가")
                 return
             signal = raw_signal
             features = build_features(
@@ -163,12 +164,14 @@ class TradingBot:
 
     async def _open_position(self, signal: str, df):
         balance = await self.exchange.get_balance()
+        num_symbols = len(self.config.symbols)
+        per_symbol_balance = balance / num_symbols
         price = df["close"].iloc[-1]
         margin_ratio = self.risk.get_dynamic_margin_ratio(balance)
         quantity = self.exchange.calculate_quantity(
-            balance=balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
+            balance=per_symbol_balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
         )
-        logger.info(f"포지션 크기: 잔고={balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
+        logger.info(f"[{self.symbol}] 포지션 크기: 잔고={per_symbol_balance:.2f}/{balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
         stop_loss, take_profit = Indicators(df).get_atr_stop(df, signal, price)
 
         notional = quantity * price
@@ -190,11 +193,12 @@ class TradingBot:
             "atr":       float(last_row["atr"])       if "atr"       in last_row.index and pd.notna(last_row["atr"])       else 0.0,
         }
 
+        await self.risk.register_position(self.symbol, signal)
         self.current_trade_side = signal
         self._entry_price = price
         self._entry_quantity = quantity
         self.notifier.notify_open(
-            symbol=self.config.symbol,
+            symbol=self.symbol,
             side=signal,
             entry_price=price,
             quantity=quantity,
@@ -245,10 +249,10 @@ class TradingBot:
         estimated_pnl = self._calc_estimated_pnl(exit_price)
         diff = net_pnl - estimated_pnl
 
-        self.risk.record_pnl(net_pnl)
+        await self.risk.close_position(self.symbol, net_pnl)
 
         self.notifier.notify_close(
-            symbol=self.config.symbol,
+            symbol=self.symbol,
             side=self.current_trade_side or "UNKNOWN",
             close_reason=close_reason,
             exit_price=exit_price,
@@ -317,8 +321,8 @@ class TradingBot:
         try:
             await self._close_position(position)
 
-            if not self.risk.can_open_new_position():
-                logger.info("최대 포지션 수 도달 — 재진입 건너뜀")
+            if not await self.risk.can_open_new_position(self.symbol, signal):
+                logger.info(f"[{self.symbol}] 최대 포지션 수 도달 — 재진입 건너뜀")
                 return
 
             if self.ml_filter.is_model_loaded():
@@ -337,7 +341,7 @@ class TradingBot:
             self._is_reentering = False
 
     async def run(self):
-        logger.info(f"봇 시작: {self.config.symbol}, 레버리지 {self.config.leverage}x")
+        logger.info(f"[{self.symbol}] 봇 시작, 레버리지 {self.config.leverage}x")
         await self._recover_position()
         await self._init_oi_history()
         balance = await self.exchange.get_balance()
@@ -345,7 +349,7 @@ class TradingBot:
         logger.info(f"기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")
 
         user_stream = UserDataStream(
-            symbol=self.config.symbol,
+            symbol=self.symbol,
             on_order_filled=self._on_position_closed,
         )
 
