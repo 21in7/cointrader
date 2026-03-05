@@ -1,6 +1,6 @@
 services:
   cointrader:
-    image: 10.1.10.28:3000/gihyeon/cointrader:latest
+    image: git.gihyeon.com/gihyeon/cointrader:latest
     container_name: cointrader
     restart: unless-stopped
     env_file:
@@ -18,7 +18,7 @@ services:
         max-file: "5"
 
   dashboard-api:
-    image: 10.1.10.28:3000/gihyeon/cointrader-dashboard-api:latest
+    image: git.gihyeon.com/gihyeon/cointrader-dashboard-api:latest
     container_name: dashboard-api
     restart: unless-stopped
     environment:
@@ -38,7 +38,7 @@ services:
         max-file: "3"
 
   dashboard-ui:
-    image: 10.1.10.28:3000/gihyeon/cointrader-dashboard-ui:latest
+    image: git.gihyeon.com/gihyeon/cointrader-dashboard-ui:latest
     container_name: dashboard-ui
     restart: unless-stopped
     ports:
