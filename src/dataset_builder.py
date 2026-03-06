@@ -54,10 +54,19 @@ def _calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return d
 
 
-def _calc_signals(d: pd.DataFrame) -> np.ndarray:
+def _calc_signals(
+    d: pd.DataFrame,
+    signal_threshold: int = 3,
+    adx_threshold: float = 25,
+    volume_multiplier: float = 2.5,
+) -> np.ndarray:
     """
     indicators.py get_signal() 로직을 numpy 배열 연산으로 재현한다.
     반환: signal_arr — 각 행에 대해 "LONG" | "SHORT" | "HOLD"
+
+    signal_threshold: 최소 가중치 합계 (기본 3)
+    adx_threshold: ADX 최소값 필터 (0=비활성화)
+    volume_multiplier: 거래량 급증 배수 (기본 1.5)
     """
     n = len(d)
 
@@ -105,16 +114,23 @@ def _calc_signals(d: pd.DataFrame) -> np.ndarray:
     short_score += ((stoch_k > 80) & (stoch_k < stoch_d)).astype(np.float32)
 
     # 6. 거래량 급증
-    vol_surge = volume > vol_ma20 * 1.5
+    vol_surge = volume > vol_ma20 * volume_multiplier
 
-    long_enter  = (long_score  >= 3) & (vol_surge | (long_score  >= 4))
-    short_enter = (short_score >= 3) & (vol_surge | (short_score >= 4))
+    thr = signal_threshold
+    long_enter  = (long_score  >= thr) & (vol_surge | (long_score  >= thr + 1))
+    short_enter = (short_score >= thr) & (vol_surge | (short_score >= thr + 1))
 
     signal_arr = np.full(n, "HOLD", dtype=object)
     signal_arr[long_enter]  = "LONG"
     signal_arr[short_enter] = "SHORT"
     # 둘 다 해당하면 HOLD (충돌 방지)
     signal_arr[long_enter & short_enter] = "HOLD"
+
+    # ADX 필터
+    if adx_threshold > 0 and "adx" in d.columns:
+        adx_vals = d["adx"].values
+        low_adx = adx_vals < adx_threshold
+        signal_arr[low_adx] = "HOLD"
 
     return signal_arr
 
@@ -372,6 +388,9 @@ def generate_dataset_vectorized(
     eth_df: pd.DataFrame | None = None,
     time_weight_decay: float = 0.0,
     negative_ratio: int = 0,
+    signal_threshold: int = 3,
+    adx_threshold: float = 25,
+    volume_multiplier: float = 2.5,
 ) -> pd.DataFrame:
     """
     전체 시계열을 1회 계산해 학습 데이터셋을 생성한다.
@@ -390,7 +409,12 @@ def generate_dataset_vectorized(
     d = _calc_indicators(df)
 
     print("  [2/3] 신호 마스킹 및 피처 추출...")
-    signal_arr = _calc_signals(d)
+    signal_arr = _calc_signals(
+        d,
+        signal_threshold=signal_threshold,
+        adx_threshold=adx_threshold,
+        volume_multiplier=volume_multiplier,
+    )
     feat_all   = _calc_features_vectorized(d, signal_arr, btc_df=btc_df, eth_df=eth_df)
 
     # 신호 발생 + NaN 없음 + 미래 데이터 충분한 인덱스만

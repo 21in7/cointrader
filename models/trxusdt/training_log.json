@@ -23,5 +23,80 @@
       "reg_lambda": 0.000157
     },
     "weight_scale": 1.783105
+  },
+  {
+    "date": "2026-03-06T02:00:40.471987",
+    "backend": "lgbm",
+    "auc": 0.9433,
+    "best_threshold": 0.2433,
+    "best_precision": 0.439,
+    "best_recall": 0.947,
+    "samples": 2940,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/trxusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
+  },
+  {
+    "date": "2026-03-06T22:37:17.762061",
+    "backend": "lgbm",
+    "auc": 0.9493,
+    "best_threshold": 0.2613,
+    "best_precision": 0.448,
+    "best_recall": 0.975,
+    "samples": 2952,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/trxusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
+  },
+  {
+    "date": "2026-03-06T23:35:11.188338",
+    "backend": "lgbm",
+    "auc": 0.96,
+    "best_threshold": 0.6121,
+    "best_precision": 0.75,
+    "best_recall": 0.6,
+    "samples": 648,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/trxusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
   }
 ]

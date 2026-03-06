@@ -52,18 +52,29 @@ class Indicators:
 
         return df
 
-    def get_signal(self, df: pd.DataFrame) -> str:
+    def get_signal(
+        self,
+        df: pd.DataFrame,
+        signal_threshold: int = 3,
+        adx_threshold: float = 25,
+        volume_multiplier: float = 2.5,
+    ) -> str:
         """
         복합 지표 기반 매매 신호 생성.
-        공격적 전략: 3개 이상 지표 일치 시 진입.
+
+        signal_threshold: 최소 가중치 합계 (기본 3)
+        adx_threshold: ADX 최소값 필터 (0=비활성화, 25=ADX<25이면 HOLD)
+        volume_multiplier: 거래량 급증 배수 (기본 1.5)
         """
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
-        # ADX 로깅 (ML 피처로 위임, 하드필터 제거)
+        # ADX 필터
         adx = last.get("adx", None)
         if adx is not None and not pd.isna(adx):
             logger.debug(f"ADX: {adx:.1f}")
+            if adx_threshold > 0 and adx < adx_threshold:
+                return "HOLD"
 
         long_signals  = 0
         short_signals = 0
@@ -99,22 +110,22 @@ class Indicators:
             short_signals += 1
 
         # 6. 거래량 확인 (신호 강화)
-        vol_surge = last["volume"] > last["vol_ma20"] * 1.5
+        vol_surge = last["volume"] > last["vol_ma20"] * volume_multiplier
 
-        threshold = 3
-        if long_signals >= threshold and (vol_surge or long_signals >= 4):
+        if long_signals >= signal_threshold and (vol_surge or long_signals >= signal_threshold + 1):
             return "LONG"
-        elif short_signals >= threshold and (vol_surge or short_signals >= 4):
+        elif short_signals >= signal_threshold and (vol_surge or short_signals >= signal_threshold + 1):
             return "SHORT"
         return "HOLD"
 
     def get_atr_stop(
-        self, df: pd.DataFrame, side: str, entry_price: float
+        self, df: pd.DataFrame, side: str, entry_price: float,
+        atr_sl_mult: float = 2.0, atr_tp_mult: float = 2.0,
     ) -> tuple[float, float]:
         """ATR 기반 손절/익절 가격 반환 (stop_loss, take_profit)"""
         atr = df["atr"].iloc[-1]
-        multiplier_sl = 1.5
-        multiplier_tp = 3.0
+        multiplier_sl = atr_sl_mult
+        multiplier_tp = atr_tp_mult
         if side == "LONG":
             stop_loss   = entry_price - atr * multiplier_sl
             take_profit = entry_price + atr * multiplier_tp

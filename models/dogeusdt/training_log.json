@@ -23,5 +23,80 @@
       "reg_lambda": 0.000157
     },
     "weight_scale": 1.783105
+  },
+  {
+    "date": "2026-03-06T02:00:56.287381",
+    "backend": "lgbm",
+    "auc": 0.9555,
+    "best_threshold": 0.4012,
+    "best_precision": 0.577,
+    "best_recall": 0.319,
+    "samples": 3330,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/dogeusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
+  },
+  {
+    "date": "2026-03-06T22:37:26.751875",
+    "backend": "lgbm",
+    "auc": 0.9565,
+    "best_threshold": 0.4047,
+    "best_precision": 0.65,
+    "best_recall": 0.277,
+    "samples": 3336,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/dogeusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
+  },
+  {
+    "date": "2026-03-06T23:35:19.306197",
+    "backend": "lgbm",
+    "auc": 0.9552,
+    "best_threshold": 0.8009,
+    "best_precision": 0.75,
+    "best_recall": 0.2,
+    "samples": 744,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/dogeusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
   }
 ]

@@ -10,7 +10,7 @@ from src.data_stream import MultiSymbolStream
 from src.notifier import DiscordNotifier
 from src.risk_manager import RiskManager
 from src.ml_filter import MLFilter
-from src.ml_features import build_features
+from src.ml_features import build_features_aligned
 from src.user_data_stream import UserDataStream
 
 
@@ -139,7 +139,12 @@ class TradingBot:
 
         ind = Indicators(df)
         df_with_indicators = ind.calculate_all()
-        raw_signal = ind.get_signal(df_with_indicators)
+        raw_signal = ind.get_signal(
+            df_with_indicators,
+            signal_threshold=self.config.signal_threshold,
+            adx_threshold=self.config.adx_threshold,
+            volume_multiplier=self.config.volume_multiplier,
+        )
 
         current_price = df_with_indicators["close"].iloc[-1]
         logger.info(f"[{self.symbol}] 신호: {raw_signal} | 현재가: {current_price:.4f} USDT")
@@ -152,7 +157,7 @@ class TradingBot:
                 logger.info(f"[{self.symbol}] 포지션 오픈 불가")
                 return
             signal = raw_signal
-            features = build_features(
+            features = build_features_aligned(
                 df_with_indicators, signal,
                 btc_df=btc_df, eth_df=eth_df,
                 oi_change=oi_change, funding_rate=funding_rate,
@@ -185,7 +190,11 @@ class TradingBot:
             balance=per_symbol_balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
         )
         logger.info(f"[{self.symbol}] 포지션 크기: 잔고={per_symbol_balance:.2f}/{balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
-        stop_loss, take_profit = Indicators(df).get_atr_stop(df, signal, price)
+        stop_loss, take_profit = Indicators(df).get_atr_stop(
+            df, signal, price,
+            atr_sl_mult=self.config.atr_sl_mult,
+            atr_tp_mult=self.config.atr_tp_mult,
+        )
 
         notional = quantity * price
         if quantity <= 0 or notional < self.exchange.MIN_NOTIONAL:
@@ -339,7 +348,7 @@ class TradingBot:
                 return
 
             if self.ml_filter.is_model_loaded():
-                features = build_features(
+                features = build_features_aligned(
                     df, signal,
                     btc_df=btc_df, eth_df=eth_df,
                     oi_change=oi_change, funding_rate=funding_rate,

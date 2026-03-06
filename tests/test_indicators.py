@@ -54,20 +54,22 @@ def test_adx_column_exists(sample_df):
     assert (valid >= 0).all()
 
 
-def test_adx_low_does_not_block_signal(sample_df):
-    """ADX < 25여도 시그널이 차단되지 않는다 (ML에 위임)."""
+def test_adx_filter_blocks_low_adx(sample_df):
+    """ADX < adx_threshold이면 HOLD 반환."""
     ind = Indicators(sample_df)
     df = ind.calculate_all()
-    # 강한 LONG 신호가 나오도록 지표 조작
     df.loc[df.index[-1], "rsi"] = 20
     df.loc[df.index[-2], "macd"] = -1
     df.loc[df.index[-2], "macd_signal"] = 0
     df.loc[df.index[-1], "macd"] = 1
     df.loc[df.index[-1], "macd_signal"] = 0
-    df.loc[df.index[-1], "volume"] = df.loc[df.index[-1], "vol_ma20"] * 2
+    df.loc[df.index[-1], "volume"] = df.loc[df.index[-1], "vol_ma20"] * 3
     df["adx"] = 15.0
+    # 기본 adx_threshold=25이므로 ADX=15은 HOLD
     signal = ind.get_signal(df)
-    # ADX 낮아도 지표 조건 충족 시 LONG 반환 (ML이 최종 판단)
+    assert signal == "HOLD"
+    # adx_threshold=0이면 ADX 필터 비활성화 → LONG
+    signal = ind.get_signal(df, adx_threshold=0)
     assert signal == "LONG"
 
 

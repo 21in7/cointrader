@@ -130,3 +130,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-04 | `oi-derived-features` (design + plan) | Completed |
 | 2026-03-05 | `multi-symbol-trading` (design + plan) | Completed |
 | 2026-03-06 | `multi-symbol-dashboard` (design + plan) | Completed |
+| 2026-03-06 | `strategy-parameter-sweep` (plan) | Completed |

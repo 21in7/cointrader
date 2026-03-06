@@ -230,7 +230,7 @@ def signal_producing_df():
 
 def test_hold_negative_labels_are_all_zero(signal_producing_df):
     """HOLD negative 샘플의 label은 전부 0이어야 한다."""
-    result = generate_dataset_vectorized(signal_producing_df, negative_ratio=3)
+    result = generate_dataset_vectorized(signal_producing_df, negative_ratio=3, adx_threshold=0, volume_multiplier=1.5)
     assert len(result) > 0, "시그널이 발생하지 않아 테스트 불가"
     assert "source" in result.columns
     hold_neg = result[result["source"] == "hold_negative"]
@@ -241,8 +241,8 @@ def test_hold_negative_labels_are_all_zero(signal_producing_df):
 
 def test_signal_samples_preserved_after_sampling(signal_producing_df):
     """계층적 샘플링 후 source='signal' 샘플이 하나도 버려지지 않아야 한다."""
-    result_signal_only = generate_dataset_vectorized(signal_producing_df, negative_ratio=0)
-    result_with_hold   = generate_dataset_vectorized(signal_producing_df, negative_ratio=3)
+    result_signal_only = generate_dataset_vectorized(signal_producing_df, negative_ratio=0, adx_threshold=0, volume_multiplier=1.5)
+    result_with_hold   = generate_dataset_vectorized(signal_producing_df, negative_ratio=3, adx_threshold=0, volume_multiplier=1.5)
 
     assert len(result_signal_only) > 0, "시그널이 발생하지 않아 테스트 불가"
     assert "source" in result_with_hold.columns

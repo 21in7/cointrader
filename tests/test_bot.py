@@ -246,7 +246,7 @@ async def test_process_candle_fetches_oi_and_funding(config, sample_df):
         mock_ind.get_signal.return_value = "LONG"
         mock_ind_cls.return_value = mock_ind
 
-        with patch("src.bot.build_features") as mock_build:
+        with patch("src.bot.build_features_aligned") as mock_build:
             from src.ml_features import FEATURE_COLS
             mock_build.return_value = pd.Series({col: 0.0 for col in FEATURE_COLS})
             bot.ml_filter.is_model_loaded = MagicMock(return_value=False)

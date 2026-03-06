@@ -23,6 +23,11 @@ class Config:
     margin_min_ratio: float = 0.20
     margin_decay_rate: float = 0.0006
     ml_threshold: float = 0.55
+    atr_sl_mult: float = 2.0
+    atr_tp_mult: float = 2.0
+    signal_threshold: int = 3
+    adx_threshold: float = 25.0
+    volume_multiplier: float = 2.5
 
     def __post_init__(self):
         self.api_key = os.getenv("BINANCE_API_KEY", "")
@@ -35,6 +40,11 @@ class Config:
         self.margin_decay_rate = float(os.getenv("MARGIN_DECAY_RATE", "0.0006"))
         self.ml_threshold = float(os.getenv("ML_THRESHOLD", "0.55"))
         self.max_same_direction = int(os.getenv("MAX_SAME_DIRECTION", "2"))
+        self.atr_sl_mult = float(os.getenv("ATR_SL_MULT", "2.0"))
+        self.atr_tp_mult = float(os.getenv("ATR_TP_MULT", "2.0"))
+        self.signal_threshold = int(os.getenv("SIGNAL_THRESHOLD", "3"))
+        self.adx_threshold = float(os.getenv("ADX_THRESHOLD", "25"))
+        self.volume_multiplier = float(os.getenv("VOL_MULTIPLIER", "2.5"))
 
         # symbols: SYMBOLS 환경변수 우선, 없으면 SYMBOL에서 변환
         symbols_env = os.getenv("SYMBOLS", "")
