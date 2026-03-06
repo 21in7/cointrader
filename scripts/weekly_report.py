@@ -344,8 +344,8 @@ def send_report(content: str, webhook_url: str | None = None) -> None:
 
 def _sanitize(obj):
     """JSON 직렬화를 위해 numpy/inf 값을 변환."""
-    if isinstance(obj, bool):
-        return obj
+    if isinstance(obj, (bool, np.bool_)):
+        return bool(obj)
     if isinstance(obj, (np.integer,)):
         return int(obj)
     if isinstance(obj, (np.floating,)):
