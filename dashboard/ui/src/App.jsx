@@ -266,12 +266,15 @@ export default function App() {
   const [isLive, setIsLive] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
 
+  const [symbols, setSymbols] = useState([]);
+  const [selectedSymbol, setSelectedSymbol] = useState(null); // null = ALL
+
   const [stats, setStats] = useState({
     total_trades: 0, wins: 0, losses: 0,
     total_pnl: 0, total_fees: 0, avg_pnl: 0,
     best_trade: 0, worst_trade: 0,
   });
-  const [position, setPosition] = useState(null);
+  const [positions, setPositions] = useState([]);
   const [botStatus, setBotStatus] = useState({});
   const [trades, setTrades] = useState([]);
   const [daily, setDaily] = useState([]);
@@ -279,27 +282,32 @@ export default function App() {
 
   /* ── 데이터 폴링 ─────────────────────────────────────────── */
   const fetchAll = useCallback(async () => {
-    const [sRes, pRes, tRes, dRes, cRes] = await Promise.all([
-      api("/stats"),
-      api("/position"),
-      api("/trades?limit=50"),
-      api("/daily?days=30"),
-      api("/candles?limit=96"),
+    const sym = selectedSymbol ? `?symbol=${selectedSymbol}` : "";
+    const symRequired = selectedSymbol || symbols[0] || "XRPUSDT";
+
+    const [symRes, sRes, pRes, tRes, dRes, cRes] = await Promise.all([
+      api("/symbols"),
+      api(`/stats${sym}`),
+      api(`/position${sym}`),
+      api(`/trades${sym}${sym ? "&" : "?"}limit=50`),
+      api(`/daily${sym}`),
+      api(`/candles?symbol=${symRequired}&limit=96`),
     ]);
 
+    if (symRes?.symbols) setSymbols(symRes.symbols);
     if (sRes && sRes.total_trades !== undefined) {
       setStats(sRes);
       setIsLive(true);
       setLastUpdate(new Date());
     }
     if (pRes) {
-      setPosition(pRes.position);
+      setPositions(pRes.positions || []);
       if (pRes.bot) setBotStatus(pRes.bot);
     }
     if (tRes?.trades) setTrades(tRes.trades);
     if (dRes?.daily) setDaily(dRes.daily);
     if (cRes?.candles) setCandles(cRes.candles);
-  }, []);
+  }, [selectedSymbol, symbols]);
 
   useEffect(() => {
     fetchAll();
@@ -328,8 +336,9 @@ export default function App() {
   const candleLabels = candles.map((c) => fmtTime(c.ts));
 
   /* ── 현재 가격 (봇 상태 또는 마지막 캔들) ──────────────────── */
-  const currentPrice = botStatus.current_price
-    || (candles.length ? candles[candles.length - 1].price : null);
+  const currentPrice = selectedSymbol
+    ? (botStatus[`${selectedSymbol}:current_price`] || (candles.length ? candles[candles.length - 1].price : null))
+    : (candles.length ? candles[candles.length - 1].price : null);
 
   /* ── 공통 차트 축 스타일 ─────────────────────────────────── */
   const axisStyle = {
@@ -371,7 +380,10 @@ export default function App() {
                 fontSize: 10, color: S.text3, letterSpacing: 2,
                 textTransform: "uppercase", fontFamily: S.mono,
               }}>
-                {isLive ? "Live" : "Connecting…"} · XRP/USDT
+                {isLive ? "Live" : "Connecting…"}
+                {selectedSymbol
+                  ? ` · ${selectedSymbol.replace("USDT", "/USDT")}`
+                  : ` · ${symbols.length} symbols`}
                 {currentPrice && (
                   <span style={{ color: "rgba(255,255,255,0.5)", marginLeft: 8 }}>
                     {fmt(currentPrice)}
@@ -384,33 +396,64 @@ export default function App() {
             </h1>
           </div>
 
-          {/* 오픈 포지션 */}
-          {position && (
-            <div style={{
-              background: "linear-gradient(135deg,rgba(99,102,241,0.08) 0%,rgba(99,102,241,0.02) 100%)",
-              border: "1px solid rgba(99,102,241,0.15)", borderRadius: 14,
-              padding: "12px 18px",
-            }}>
-              <div style={{
-                fontSize: 9, color: S.text3, letterSpacing: 1.2,
-                fontFamily: S.mono, marginBottom: 4,
-              }}>OPEN POSITION</div>
-              <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-                <Badge
-                  bg={position.direction === "SHORT" ? "rgba(239,68,68,0.12)" : "rgba(52,211,153,0.12)"}
-                  color={position.direction === "SHORT" ? S.red : S.green}
-                >
-                  {position.direction} {position.leverage || 10}x
-                </Badge>
-                <span style={{ fontSize: 16, fontWeight: 700, fontFamily: S.mono }}>
-                  {fmt(position.entry_price)}
-                </span>
-                <span style={{ fontSize: 10, color: S.text3, fontFamily: S.mono }}>
-                  SL {fmt(position.sl)} · TP {fmt(position.tp)}
-                </span>
-              </div>
+          {/* 오픈 포지션 — 복수 표시 */}
+          {positions.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {positions.map((pos) => (
+                <div key={pos.id} style={{
+                  background: "linear-gradient(135deg,rgba(99,102,241,0.08) 0%,rgba(99,102,241,0.02) 100%)",
+                  border: "1px solid rgba(99,102,241,0.15)", borderRadius: 14,
+                  padding: "12px 18px",
+                }}>
+                  <div style={{ fontSize: 9, color: S.text3, letterSpacing: 1.2, fontFamily: S.mono, marginBottom: 4 }}>
+                    {(pos.symbol || "").replace("USDT", "/USDT")}
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <Badge
+                      bg={pos.direction === "SHORT" ? "rgba(239,68,68,0.12)" : "rgba(52,211,153,0.12)"}
+                      color={pos.direction === "SHORT" ? S.red : S.green}
+                    >
+                      {pos.direction} {pos.leverage || 10}x
+                    </Badge>
+                    <span style={{ fontSize: 14, fontWeight: 700, fontFamily: S.mono }}>
+                      {fmt(pos.entry_price)}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
+        </div>
+
+        {/* ═══ 심볼 필터 ═══════════════════════════════════════ */}
+        <div style={{
+          display: "flex", gap: 4, marginBottom: 12,
+          background: "rgba(255,255,255,0.02)", borderRadius: 12,
+          padding: 4, width: "fit-content",
+        }}>
+          <button
+            onClick={() => setSelectedSymbol(null)}
+            style={{
+              background: selectedSymbol === null ? "rgba(99,102,241,0.15)" : "transparent",
+              border: "none",
+              color: selectedSymbol === null ? S.indigo : S.text3,
+              padding: "6px 14px", borderRadius: 8, cursor: "pointer",
+              fontSize: 11, fontWeight: 600, fontFamily: S.mono,
+            }}
+          >ALL</button>
+          {symbols.map((sym) => (
+            <button
+              key={sym}
+              onClick={() => setSelectedSymbol(sym)}
+              style={{
+                background: selectedSymbol === sym ? "rgba(99,102,241,0.15)" : "transparent",
+                border: "none",
+                color: selectedSymbol === sym ? S.indigo : S.text3,
+                padding: "6px 14px", borderRadius: 8, cursor: "pointer",
+                fontSize: 11, fontWeight: 600, fontFamily: S.mono,
+              }}
+            >{sym.replace("USDT", "")}</button>
+          ))}
         </div>
 
         {/* ═══ 탭 ═════════════════════════════════════════════ */}
@@ -556,7 +599,7 @@ export default function App() {
         {/* ═══ CHART ══════════════════════════════════════════ */}
         {tab === "chart" && (
           <div>
-            <ChartBox title="XRP/USDT 15m 가격">
+            <ChartBox title={`${(selectedSymbol || symbols[0] || "XRP").replace("USDT", "")}/USDT 15m 가격`}>
               <ResponsiveContainer width="100%" height={240}>
                 <AreaChart data={candles.map((c) => ({ ts: fmtTime(c.ts), price: c.price || c.close }))}>
                   <defs>

@@ -20,36 +20,31 @@ LOG_DIR = os.environ.get("LOG_DIR", "/app/logs")
 DB_PATH = os.environ.get("DB_PATH", "/app/data/dashboard.db")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))  # 초
 
-# ── 정규식 패턴 (실제 봇 로그 형식 기준) ──────────────────────────
+# ── 정규식 패턴 (멀티심볼 [SYMBOL] 프리픽스 포함) ─────────────────
 PATTERNS = {
-    # 신호: HOLD | 현재가: 1.3889 USDT
     "signal": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*신호: (?P<signal>\w+) \| 현재가: (?P<price>[\d.]+) USDT"
+        r".*\[(?P<symbol>\w+)\] 신호: (?P<signal>\w+) \| 현재가: (?P<price>[\d.]+) USDT"
     ),
 
-    # ADX: 24.4
     "adx": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*ADX: (?P<adx>[\d.]+)"
+        r".*\[(?P<symbol>\w+)\] ADX: (?P<adx>[\d.]+)"
     ),
 
-    # OI=261103765.6, OI변화율=0.000692, 펀딩비=0.000039
     "microstructure": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*OI=(?P<oi>[\d.]+), OI변화율=(?P<oi_change>[-\d.]+), 펀딩비=(?P<funding>[-\d.]+)"
+        r".*\[(?P<symbol>\w+)\] OI=(?P<oi>[\d.]+), OI변화율=(?P<oi_change>[-\d.]+), 펀딩비=(?P<funding>[-\d.]+)"
     ),
 
-    # 기존 포지션 복구: SHORT | 진입가=1.4126 | 수량=86.8
     "position_recover": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*기존 포지션 복구: (?P<direction>\w+) \| 진입가=(?P<entry_price>[\d.]+) \| 수량=(?P<qty>[\d.]+)"
+        r".*\[(?P<symbol>\w+)\] 기존 포지션 복구: (?P<direction>\w+) \| 진입가=(?P<entry_price>[\d.]+) \| 수량=(?P<qty>[\d.]+)"
     ),
 
-    # SHORT 진입: 가격=1.3940, 수량=86.8, SL=1.4040, TP=1.3840, RSI=42.31, MACD_H=-0.001234, ATR=0.005678
     "entry": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*(?P<direction>SHORT|LONG) 진입: "
+        r".*\[(?P<symbol>\w+)\] (?P<direction>SHORT|LONG) 진입: "
         r"가격=(?P<entry_price>[\d.]+), "
         r"수량=(?P<qty>[\d.]+), "
         r"SL=(?P<sl>[\d.]+), "
@@ -59,35 +54,30 @@ PATTERNS = {
         r"(?:, ATR=(?P<atr>[\d.]+))?"
     ),
 
-    # 청산 감지(MANUAL): exit=1.3782, rp=+2.9859, commission=0.0598, net_pnl=+2.9261
     "close_detect": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*청산 감지\((?P<reason>\w+)\):\s*"
+        r".*\[(?P<symbol>\w+)\] 청산 감지\((?P<reason>\w+)\):\s*"
         r"exit=(?P<exit_price>[\d.]+),\s*"
         r"rp=(?P<expected>[+\-\d.]+),\s*"
         r"commission=(?P<commission>[\d.]+),\s*"
         r"net_pnl=(?P<net_pnl>[+\-\d.]+)"
     ),
 
-    # 오늘 누적 PnL: 2.9261 USDT
     "daily_pnl": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*오늘 누적 PnL: (?P<pnl>[+\-\d.]+) USDT"
+        r".*\[(?P<symbol>\w+)\] 오늘 누적 PnL: (?P<pnl>[+\-\d.]+) USDT"
     ),
 
-    # 봇 시작: XRPUSDT, 레버리지 10x
     "bot_start": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*봇 시작: (?P<symbol>\w+), 레버리지 (?P<leverage>\d+)x"
+        r".*\[(?P<symbol>\w+)\] 봇 시작, 레버리지 (?P<leverage>\d+)x"
     ),
 
-    # 기준 잔고 설정: 24.46 USDT
     "balance": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*기준 잔고 설정: (?P<balance>[\d.]+) USDT"
+        r".*\[(?P<symbol>\w+)\] 기준 잔고 설정: (?P<balance>[\d.]+) USDT"
     ),
 
-    # ML 필터 로드
     "ml_filter": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
         r".*ML 필터 로드.*임계값=(?P<threshold>[\d.]+)"
@@ -103,18 +93,22 @@ class LogParser:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_db()
 
-        # 상태 추적
-        self._file_positions = {}          # {파일경로: 마지막 읽은 위치}
-        self._current_position = None      # 현재 열린 포지션 정보
-        self._pending_candle = {}          # 타임스탬프 기준으로 지표를 모아두기
-        self._bot_config = {"symbol": "XRPUSDT", "leverage": 10}
+        self._file_positions = {}
+        self._current_positions = {}       # {symbol: position_dict}
+        self._pending_candles = {}         # {symbol: {ts_key: {data}}}
         self._balance = 0
 
     def _init_db(self):
         self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS trades (
+            DROP TABLE IF EXISTS trades;
+            DROP TABLE IF EXISTS candles;
+            DROP TABLE IF EXISTS daily_pnl;
+            DROP TABLE IF EXISTS bot_status;
+            DROP TABLE IF EXISTS parse_state;
+
+            CREATE TABLE trades (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                symbol          TEXT    NOT NULL DEFAULT 'XRPUSDT',
+                symbol          TEXT    NOT NULL,
                 direction       TEXT    NOT NULL,
                 entry_time      TEXT    NOT NULL,
                 exit_time       TEXT,
@@ -137,54 +131,60 @@ class LogParser:
                 extra           TEXT
             );
 
-            CREATE TABLE IF NOT EXISTS candles (
+            CREATE TABLE candles (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts              TEXT    NOT NULL UNIQUE,
+                symbol          TEXT    NOT NULL,
+                ts              TEXT    NOT NULL,
                 price           REAL    NOT NULL,
                 signal          TEXT,
                 adx             REAL,
                 oi              REAL,
                 oi_change       REAL,
-                funding_rate    REAL
+                funding_rate    REAL,
+                UNIQUE(symbol, ts)
             );
 
-            CREATE TABLE IF NOT EXISTS daily_pnl (
-                date            TEXT    PRIMARY KEY,
+            CREATE TABLE daily_pnl (
+                symbol          TEXT    NOT NULL,
+                date            TEXT    NOT NULL,
                 cumulative_pnl  REAL    DEFAULT 0,
                 trade_count     INTEGER DEFAULT 0,
                 wins            INTEGER DEFAULT 0,
                 losses          INTEGER DEFAULT 0,
-                last_updated    TEXT
+                last_updated    TEXT,
+                PRIMARY KEY(symbol, date)
             );
 
-            CREATE TABLE IF NOT EXISTS bot_status (
+            CREATE TABLE bot_status (
                 key             TEXT    PRIMARY KEY,
                 value           TEXT,
                 updated_at      TEXT
             );
 
-            CREATE TABLE IF NOT EXISTS parse_state (
+            CREATE TABLE parse_state (
                 filepath        TEXT    PRIMARY KEY,
                 position        INTEGER DEFAULT 0
             );
 
-            CREATE INDEX IF NOT EXISTS idx_candles_ts ON candles(ts);
-            CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
+            CREATE INDEX idx_candles_symbol_ts ON candles(symbol, ts);
+            CREATE INDEX idx_trades_status ON trades(status);
+            CREATE INDEX idx_trades_symbol ON trades(symbol);
         """)
         self.conn.commit()
         self._load_state()
 
     def _load_state(self):
-        """이전 파싱 위치 복원"""
         rows = self.conn.execute("SELECT filepath, position FROM parse_state").fetchall()
         self._file_positions = {r["filepath"]: r["position"] for r in rows}
 
-        # 현재 열린 포지션 복원
-        row = self.conn.execute(
-            "SELECT * FROM trades WHERE status='OPEN' ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if row:
-            self._current_position = dict(row)
+        # 심볼별 열린 포지션 복원
+        open_trades = self.conn.execute(
+            "SELECT * FROM trades WHERE status='OPEN' ORDER BY id DESC"
+        ).fetchall()
+        for row in open_trades:
+            sym = row["symbol"]
+            if sym not in self._current_positions:
+                self._current_positions[sym] = dict(row)
 
     def _save_position(self, filepath, pos):
         self.conn.execute(
@@ -214,8 +214,6 @@ class LogParser:
             time.sleep(POLL_INTERVAL)
 
     def _scan_logs(self):
-        """로그 파일 목록을 가져와서 새 줄 파싱"""
-        # 날짜 형식 (bot_2026-03-01.log) + 현재 형식 (bot.log) 모두 스캔
         log_files = sorted(glob.glob(os.path.join(LOG_DIR, "bot_*.log")))
         main_log = os.path.join(LOG_DIR, "bot.log")
         if os.path.exists(main_log):
@@ -231,12 +229,11 @@ class LogParser:
         except OSError:
             return
 
-        # 파일이 줄었으면 (로테이션) 처음부터
         if file_size < last_pos:
             last_pos = 0
 
         if file_size == last_pos:
-            return  # 새 내용 없음
+            return
 
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             f.seek(last_pos)
@@ -257,11 +254,9 @@ class LogParser:
         # 봇 시작
         m = PATTERNS["bot_start"].search(line)
         if m:
-            self._bot_config["symbol"] = m.group("symbol")
-            self._bot_config["leverage"] = int(m.group("leverage"))
-            self._set_status("symbol", m.group("symbol"))
-            self._set_status("leverage", m.group("leverage"))
-            self._set_status("last_start", m.group("ts"))
+            symbol = m.group("symbol")
+            self._set_status(f"{symbol}:leverage", m.group("leverage"))
+            self._set_status(f"{symbol}:last_start", m.group("ts"))
             return
 
         # 잔고
@@ -282,6 +277,7 @@ class LogParser:
         if m:
             self._handle_entry(
                 ts=m.group("ts"),
+                symbol=m.group("symbol"),
                 direction=m.group("direction"),
                 entry_price=float(m.group("entry_price")),
                 qty=float(m.group("qty")),
@@ -289,11 +285,12 @@ class LogParser:
             )
             return
 
-        # 포지션 진입: SHORT 진입: 가격=X, 수량=Y, SL=Z, TP=W, RSI=R, MACD_H=M, ATR=A
+        # 포지션 진입
         m = PATTERNS["entry"].search(line)
         if m:
             self._handle_entry(
                 ts=m.group("ts"),
+                symbol=m.group("symbol"),
                 direction=m.group("direction"),
                 entry_price=float(m.group("entry_price")),
                 qty=float(m.group("qty")),
@@ -308,10 +305,13 @@ class LogParser:
         # OI/펀딩비 (캔들 데이터에 합침)
         m = PATTERNS["microstructure"].search(line)
         if m:
-            ts_key = m.group("ts")[:16]  # 분 단위로 그룹
-            if ts_key not in self._pending_candle:
-                self._pending_candle[ts_key] = {}
-            self._pending_candle[ts_key].update({
+            symbol = m.group("symbol")
+            ts_key = m.group("ts")[:16]
+            if symbol not in self._pending_candles:
+                self._pending_candles[symbol] = {}
+            if ts_key not in self._pending_candles[symbol]:
+                self._pending_candles[symbol][ts_key] = {}
+            self._pending_candles[symbol][ts_key].update({
                 "oi": float(m.group("oi")),
                 "oi_change": float(m.group("oi_change")),
                 "funding": float(m.group("funding")),
@@ -321,32 +321,36 @@ class LogParser:
         # ADX
         m = PATTERNS["adx"].search(line)
         if m:
+            symbol = m.group("symbol")
             ts_key = m.group("ts")[:16]
-            if ts_key not in self._pending_candle:
-                self._pending_candle[ts_key] = {}
-            self._pending_candle[ts_key]["adx"] = float(m.group("adx"))
+            if symbol not in self._pending_candles:
+                self._pending_candles[symbol] = {}
+            if ts_key not in self._pending_candles[symbol]:
+                self._pending_candles[symbol][ts_key] = {}
+            self._pending_candles[symbol][ts_key]["adx"] = float(m.group("adx"))
             return
 
         # 신호 + 현재가 → 캔들 저장
         m = PATTERNS["signal"].search(line)
         if m:
+            symbol = m.group("symbol")
             ts = m.group("ts")
             ts_key = ts[:16]
             price = float(m.group("price"))
             signal = m.group("signal")
-            extra = self._pending_candle.pop(ts_key, {})
+            extra = self._pending_candles.get(symbol, {}).pop(ts_key, {})
 
-            self._set_status("current_price", str(price))
-            self._set_status("current_signal", signal)
-            self._set_status("last_candle_time", ts)
+            self._set_status(f"{symbol}:current_price", str(price))
+            self._set_status(f"{symbol}:current_signal", signal)
+            self._set_status(f"{symbol}:last_candle_time", ts)
 
             try:
                 self.conn.execute(
-                    """INSERT INTO candles(ts, price, signal, adx, oi, oi_change, funding_rate)
-                       VALUES(?,?,?,?,?,?,?)
-                       ON CONFLICT(ts) DO UPDATE SET
+                    """INSERT INTO candles(symbol, ts, price, signal, adx, oi, oi_change, funding_rate)
+                       VALUES(?,?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol, ts) DO UPDATE SET
                          price=?, signal=?, adx=?, oi=?, oi_change=?, funding_rate=?""",
-                    (ts, price, signal,
+                    (symbol, ts, price, signal,
                      extra.get("adx"), extra.get("oi"), extra.get("oi_change"), extra.get("funding"),
                      price, signal,
                      extra.get("adx"), extra.get("oi"), extra.get("oi_change"), extra.get("funding")),
@@ -361,6 +365,7 @@ class LogParser:
         if m:
             self._handle_close(
                 ts=m.group("ts"),
+                symbol=m.group("symbol"),
                 exit_price=float(m.group("exit_price")),
                 expected_pnl=float(m.group("expected")),
                 commission=float(m.group("commission")),
@@ -372,37 +377,38 @@ class LogParser:
         # 일일 누적 PnL
         m = PATTERNS["daily_pnl"].search(line)
         if m:
+            symbol = m.group("symbol")
             ts = m.group("ts")
             day = ts[:10]
             pnl = float(m.group("pnl"))
             self.conn.execute(
-                """INSERT INTO daily_pnl(date, cumulative_pnl, last_updated)
-                   VALUES(?,?,?)
-                   ON CONFLICT(date) DO UPDATE SET cumulative_pnl=?, last_updated=?""",
-                (day, pnl, ts, pnl, ts)
+                """INSERT INTO daily_pnl(symbol, date, cumulative_pnl, last_updated)
+                   VALUES(?,?,?,?)
+                   ON CONFLICT(symbol, date) DO UPDATE SET cumulative_pnl=?, last_updated=?""",
+                (symbol, day, pnl, ts, pnl, ts)
             )
             self.conn.commit()
-            self._set_status("daily_pnl", str(pnl))
+            self._set_status(f"{symbol}:daily_pnl", str(pnl))
             return
 
     # ── 포지션 진입 핸들러 ───────────────────────────────────────
-    def _handle_entry(self, ts, direction, entry_price, qty,
+    def _handle_entry(self, ts, symbol, direction, entry_price, qty,
                       leverage=None, sl=None, tp=None, is_recovery=False,
                       rsi=None, macd_hist=None, atr=None):
         if leverage is None:
-            leverage = self._bot_config.get("leverage", 10)
+            leverage = 10
 
-        # 중복 체크 — 같은 방향의 OPEN 포지션이 이미 있으면 스킵
-        # (봇은 동시에 같은 방향 포지션을 2개 이상 열지 않음)
-        if self._current_position and self._current_position.get("direction") == direction:
+        # 중복 체크 — 같은 심볼+방향의 OPEN 포지션이 이미 있으면 스킵
+        current = self._current_positions.get(symbol)
+        if current and current.get("direction") == direction:
             return
 
         existing = self.conn.execute(
-            "SELECT id, entry_price FROM trades WHERE status='OPEN' AND direction=?",
-            (direction,),
+            "SELECT id, entry_price FROM trades WHERE status='OPEN' AND symbol=? AND direction=?",
+            (symbol, direction),
         ).fetchone()
         if existing:
-            self._current_position = {
+            self._current_positions[symbol] = {
                 "id": existing["id"],
                 "direction": direction,
                 "entry_price": existing["entry_price"],
@@ -414,35 +420,35 @@ class LogParser:
             """INSERT INTO trades(symbol, direction, entry_time, entry_price,
                quantity, leverage, sl, tp, status, extra, rsi, macd_hist, atr)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (self._bot_config.get("symbol", "XRPUSDT"), direction, ts,
+            (symbol, direction, ts,
              entry_price, qty, leverage, sl, tp, "OPEN",
              json.dumps({"recovery": is_recovery}),
              rsi, macd_hist, atr),
         )
         self.conn.commit()
-        self._current_position = {
+        self._current_positions[symbol] = {
             "id": cur.lastrowid,
             "direction": direction,
             "entry_price": entry_price,
             "entry_time": ts,
         }
-        self._set_status("position_status", "OPEN")
-        self._set_status("position_direction", direction)
-        self._set_status("position_entry_price", str(entry_price))
-        print(f"[LogParser] 포지션 진입: {direction} @ {entry_price} (recovery={is_recovery})")
+        self._set_status(f"{symbol}:position_status", "OPEN")
+        self._set_status(f"{symbol}:position_direction", direction)
+        self._set_status(f"{symbol}:position_entry_price", str(entry_price))
+        print(f"[LogParser] {symbol} 포지션 진입: {direction} @ {entry_price} (recovery={is_recovery})")
 
     # ── 포지션 청산 핸들러 ───────────────────────────────────────
-    def _handle_close(self, ts, exit_price, expected_pnl, commission, net_pnl, reason):
-        # 모든 OPEN 거래를 닫음 (봇은 동시에 1개 포지션만 보유)
+    def _handle_close(self, ts, symbol, exit_price, expected_pnl, commission, net_pnl, reason):
+        # 해당 심볼의 OPEN 거래만 닫음
         open_trades = self.conn.execute(
-            "SELECT id FROM trades WHERE status='OPEN' ORDER BY id DESC"
+            "SELECT id FROM trades WHERE status='OPEN' AND symbol=? ORDER BY id DESC",
+            (symbol,),
         ).fetchall()
 
         if not open_trades:
-            print(f"[LogParser] 경고: 청산 감지했으나 열린 포지션 없음")
+            print(f"[LogParser] 경고: {symbol} 청산 감지했으나 열린 포지션 없음")
             return
 
-        # 가장 최근 OPEN에 실제 PnL 기록
         primary_id = open_trades[0]["id"]
         self.conn.execute(
             """UPDATE trades SET
@@ -455,34 +461,33 @@ class LogParser:
              reason, primary_id)
         )
 
-        # 나머지 OPEN 거래는 중복이므로 삭제
         if len(open_trades) > 1:
             stale_ids = [r["id"] for r in open_trades[1:]]
             self.conn.execute(
                 f"DELETE FROM trades WHERE id IN ({','.join('?' * len(stale_ids))})",
                 stale_ids,
             )
-            print(f"[LogParser] 중복 OPEN 거래 {len(stale_ids)}건 삭제")
+            print(f"[LogParser] {symbol} 중복 OPEN 거래 {len(stale_ids)}건 삭제")
 
-        # 일별 요약 갱신
+        # 심볼별 일별 요약
         day = ts[:10]
         win = 1 if net_pnl > 0 else 0
         loss = 1 if net_pnl <= 0 else 0
         self.conn.execute(
-            """INSERT INTO daily_pnl(date, cumulative_pnl, trade_count, wins, losses, last_updated)
-               VALUES(?, ?, 1, ?, ?, ?)
-               ON CONFLICT(date) DO UPDATE SET
+            """INSERT INTO daily_pnl(symbol, date, cumulative_pnl, trade_count, wins, losses, last_updated)
+               VALUES(?, ?, ?, 1, ?, ?, ?)
+               ON CONFLICT(symbol, date) DO UPDATE SET
                  trade_count = trade_count + 1,
                  wins = wins + ?,
                  losses = losses + ?,
                  last_updated = ?""",
-            (day, net_pnl, win, loss, ts, win, loss, ts)
+            (symbol, day, net_pnl, win, loss, ts, win, loss, ts)
         )
         self.conn.commit()
 
-        self._set_status("position_status", "NONE")
-        print(f"[LogParser] 포지션 청산: {reason} @ {exit_price}, PnL={net_pnl}")
-        self._current_position = None
+        self._set_status(f"{symbol}:position_status", "NONE")
+        print(f"[LogParser] {symbol} 포지션 청산: {reason} @ {exit_price}, PnL={net_pnl}")
+        self._current_positions.pop(symbol, None)
 
 
 if __name__ == "__main__":

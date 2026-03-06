@@ -64,7 +64,7 @@ class TradingBot:
             self._entry_quantity = abs(amt)
             entry = float(position["entryPrice"])
             logger.info(
-                f"기존 포지션 복구: {self.current_trade_side} | "
+                f"[{self.symbol}] 기존 포지션 복구: {self.current_trade_side} | "
                 f"진입가={entry:.4f} | 수량={abs(amt)}"
             )
             self.notifier.notify_info(
@@ -72,7 +72,7 @@ class TradingBot:
                 f"진입가={entry:.4f} 수량={abs(amt)}"
             )
         else:
-            logger.info("기존 포지션 없음 - 신규 진입 대기")
+            logger.info(f"[{self.symbol}] 기존 포지션 없음 - 신규 진입 대기")
 
     async def _init_oi_history(self) -> None:
         """봇 시작 시 최근 OI 변화율 히스토리를 조회하여 deque를 채운다."""
@@ -82,7 +82,7 @@ class TradingBot:
                 self._oi_history.append(c)
             if changes:
                 self._prev_oi = None
-            logger.info(f"OI 히스토리 초기화: {len(self._oi_history)}개")
+            logger.info(f"[{self.symbol}] OI 히스토리 초기화: {len(self._oi_history)}개")
         except Exception as e:
             logger.warning(f"OI 히스토리 초기화 실패 (무시): {e}")
 
@@ -107,7 +107,7 @@ class TradingBot:
         oi_price_spread = oi_change - self._latest_ret_1
 
         logger.debug(
-            f"OI={oi_val}, OI변화율={oi_change:.6f}, 펀딩비={fr_float:.6f}, "
+            f"[{self.symbol}] OI={oi_val}, OI변화율={oi_change:.6f}, 펀딩비={fr_float:.6f}, "
             f"OI_MA5={oi_ma5:.6f}, OI_Price_Spread={oi_price_spread:.6f}"
         )
         return oi_change, fr_float, oi_ma5, oi_price_spread
@@ -134,7 +134,7 @@ class TradingBot:
         oi_change, funding_rate, oi_ma5, oi_price_spread = await self._fetch_market_microstructure()
 
         if not self.risk.is_trading_allowed():
-            logger.warning("리스크 한도 초과 - 거래 중단")
+            logger.warning(f"[{self.symbol}] 리스크 한도 초과 - 거래 중단")
             return
 
         ind = Indicators(df)
@@ -142,7 +142,7 @@ class TradingBot:
         raw_signal = ind.get_signal(df_with_indicators)
 
         current_price = df_with_indicators["close"].iloc[-1]
-        logger.info(f"신호: {raw_signal} | 현재가: {current_price:.4f} USDT")
+        logger.info(f"[{self.symbol}] 신호: {raw_signal} | 현재가: {current_price:.4f} USDT")
 
         position = await self.exchange.get_position()
 
@@ -160,7 +160,7 @@ class TradingBot:
             )
             if self.ml_filter.is_model_loaded():
                 if not self.ml_filter.should_enter(features):
-                    logger.info(f"ML 필터 차단: {signal} 신호 무시")
+                    logger.info(f"[{self.symbol}] ML 필터 차단: {signal} 신호 무시")
                     return
             await self._open_position(signal, df_with_indicators)
 
@@ -221,7 +221,7 @@ class TradingBot:
             signal_data=signal_snapshot,
         )
         logger.success(
-            f"{signal} 진입: 가격={price}, 수량={quantity}, "
+            f"[{self.symbol}] {signal} 진입: 가격={price}, 수량={quantity}, "
             f"SL={stop_loss:.4f}, TP={take_profit:.4f}, "
             f"RSI={signal_snapshot['rsi']:.2f}, "
             f"MACD_H={signal_snapshot['macd_hist']:.6f}, "
@@ -275,7 +275,7 @@ class TradingBot:
         )
 
         logger.success(
-            f"포지션 청산({close_reason}): 예상={estimated_pnl:+.4f}, "
+            f"[{self.symbol}] 포지션 청산({close_reason}): 예상={estimated_pnl:+.4f}, "
             f"순수익={net_pnl:+.4f}, 차이={diff:+.4f} USDT"
         )
 
@@ -303,7 +303,7 @@ class TradingBot:
             cost = self._entry_price * self._entry_quantity
             pnl_pct = (pnl / cost * 100) if cost > 0 else 0.0
             logger.info(
-                f"포지션 모니터 | {self.current_trade_side} | "
+                f"[{self.symbol}] 포지션 모니터 | {self.current_trade_side} | "
                 f"현재가={price:.4f} | PnL={pnl:+.4f} USDT ({pnl_pct:+.2f}%) | "
                 f"진입가={self._entry_price:.4f}"
             )
@@ -314,7 +314,7 @@ class TradingBot:
         side = "SELL" if float(position["positionAmt"]) > 0 else "BUY"
         await self.exchange.cancel_all_orders()
         await self.exchange.place_order(side=side, quantity=amt, reduce_only=True)
-        logger.info(f"청산 주문 전송 완료 (side={side}, qty={amt})")
+        logger.info(f"[{self.symbol}] 청산 주문 전송 완료 (side={side}, qty={amt})")
 
     async def _close_and_reenter(
         self,
@@ -346,7 +346,7 @@ class TradingBot:
                     oi_change_ma5=oi_change_ma5, oi_price_spread=oi_price_spread,
                 )
                 if not self.ml_filter.should_enter(features):
-                    logger.info(f"ML 필터 차단: {signal} 재진입 무시")
+                    logger.info(f"[{self.symbol}] ML 필터 차단: {signal} 재진입 무시")
                     return
 
             await self._open_position(signal, df)
@@ -359,7 +359,7 @@ class TradingBot:
         await self._init_oi_history()
         balance = await self.exchange.get_balance()
         self.risk.set_base_balance(balance)
-        logger.info(f"기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")
+        logger.info(f"[{self.symbol}] 기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")
 
         user_stream = UserDataStream(
             symbol=self.symbol,

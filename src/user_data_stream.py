@@ -102,7 +102,7 @@ class UserDataStream:
             close_reason = "MANUAL"
 
         logger.info(
-            f"청산 감지({close_reason}): exit={exit_price:.4f}, "
+            f"[{self._symbol}] 청산 감지({close_reason}): exit={exit_price:.4f}, "
             f"rp={realized_pnl:+.4f}, commission={commission:.4f}, "
             f"net_pnl={net_pnl:+.4f}"
         )
