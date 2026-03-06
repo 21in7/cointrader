@@ -62,7 +62,7 @@
   },
   "live_trades": {
     "count": 0,
-    "net_pnl": 0,
+    "net_pnl": 0.0,
     "win_rate": 0
   },
   "trend": {
@@ -85,7 +85,7 @@
     },
     "met_count": 0,
     "recommend": false,
-    "cumulative_trades": 88,
+    "cumulative_trades": 0,
     "threshold": 150
   },
   "sweep": null

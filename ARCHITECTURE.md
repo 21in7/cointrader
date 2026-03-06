@@ -1,25 +1,37 @@
 # CoinTrader — 아키텍처 문서
 
-> 이 문서는 CoinTrader 코드베이스를 처음 접하는 개발자와 트레이딩 배경 독자 모두를 위해 작성되었습니다.  
-> 기술 스택, 레이어별 역할, MLOps 파이프라인, 핵심 동작 시나리오를 순서대로 설명합니다.
+> 이 문서는 CoinTrader의 내부 구조를 설명합니다.
+> **봇 사용법**은 [README.md](README.md)를 참고하세요.
 
 ---
 
 ## 목차
 
-1. [시스템 오버뷰](#1-시스템-오버뷰)
-2. [코어 레이어 아키텍처](#2-코어-레이어-아키텍처)
-3. [MLOps 파이프라인 — 자가 진화 시스템](#3-mlops-파이프라인--자가-진화-시스템)
-4. [핵심 동작 시나리오](#4-핵심-동작-시나리오)
-5. [테스트 커버리지](#5-테스트-커버리지)
+1. [시스템 개요](#1-시스템-개요) — 봇이 무엇을 하는지, 어떤 구조인지
+2. [매매 판단 과정](#2-매매-판단-과정) — 15분마다 어떤 과정을 거쳐 매매하는지
+3. [5개 레이어 상세](#3-5개-레이어-상세) — 각 레이어의 역할과 동작 원리
+4. [MLOps 파이프라인](#4-mlops-파이프라인) — ML 모델의 학습·배포·모니터링 전체 흐름
+5. [핵심 동작 시나리오](#5-핵심-동작-시나리오) — 실제 상황별 봇의 동작 흐름도
+6. [테스트 커버리지](#6-테스트-커버리지) — 무엇을 어떻게 테스트하는지
+7. [파일 구조](#7-파일-구조) — 전체 파일 역할 요약
 
 ---
 
-## 1. 시스템 오버뷰
+## 1. 시스템 개요
 
-CoinTrader는 **Binance Futures 자동매매 봇**입니다. 기술 지표 신호를 1차 필터로, LightGBM(또는 MLX 신경망) 모델을 2차 필터로 사용하여 다중 심볼(XRP, TRX, DOGE 등) 선물 포지션을 동시에 자동 진입·청산합니다.
+CoinTrader는 **Binance Futures 자동매매 봇**입니다.
 
-### 멀티심볼 아키텍처
+**한 줄 요약**: 15분마다 기술 지표로 매매 신호를 생성하고, ML 모델로 한 번 더 검증한 뒤, 조건을 충족하면 자동으로 주문을 넣습니다.
+
+### 1.1 전체 흐름 (간략)
+
+```
+15분봉 마감 → 기술 지표 계산 → 매매 신호 생성 → ML 필터 검증 → 리스크 체크 → 주문 실행 → Discord 알림
+```
+
+### 1.2 멀티심볼 아키텍처
+
+여러 심볼을 동시에 거래합니다. 각 심볼은 독립된 봇 인스턴스로 실행되며, 리스크 관리만 공유합니다.
 
 ```
 main.py
@@ -32,9 +44,27 @@ main.py
      )
 ```
 
-각 봇은 독립적인 `Exchange`, `MLFilter`, `DataStream`을 소유합니다. `RiskManager`만 공유 싱글턴으로 글로벌 리스크(일일 손실 한도, 동일 방향 제한, 최대 포지션 수)를 관리합니다.
+- **독립**: 각 봇은 자체 `Exchange`, `MLFilter`, `DataStream`을 소유
+- **공유**: `RiskManager`만 싱글턴으로 글로벌 리스크(일일 손실 한도, 동일 방향 제한) 관리
+- **병렬**: `asyncio.gather()`로 동시 실행, 서로 간섭 없음
 
-### 전체 데이터 파이프라인 흐름도
+### 1.3 기술 스택
+
+| 분류 | 기술 |
+|------|------|
+| 언어 | Python 3.11+ |
+| 비동기 런타임 | `asyncio` + `python-binance` WebSocket |
+| 기술 지표 | `pandas-ta` (RSI, MACD, BB, EMA, StochRSI, ATR, ADX) |
+| ML 프레임워크 | `LightGBM` (CPU) / `MLX` (Apple Silicon GPU) |
+| 모델 서빙 | `onnxruntime` (ONNX 우선) / `joblib` (LightGBM 폴백) |
+| 하이퍼파라미터 탐색 | `Optuna` (TPE Sampler + MedianPruner) |
+| 데이터 저장 | `Parquet` (pyarrow) |
+| 로깅 | `Loguru` |
+| 알림 | Discord Webhook (`httpx`) |
+| 컨테이너화 | Docker + Docker Compose |
+| CI/CD | Jenkins + Gitea Container Registry |
+
+### 1.4 데이터 파이프라인 전체 흐름도
 
 ```mermaid
 flowchart TD
@@ -48,20 +78,20 @@ flowchart TD
         DS["data_stream.py<br/>MultiSymbolStream (심볼별)<br/>캔들 버퍼 (deque 200개)"]
         IND["indicators.py<br/>기술 지표 계산<br/>RSI·MACD·BB·EMA·StochRSI·ATR·ADX"]
         MF["ml_features.py<br/>26개 피처 추출<br/>(XRP 13 + BTC/ETH 8 + OI/FR 2 + OI파생 2 + ADX 1)"]
-        ML["ml_filter.py<br/>MLFilter<br/>ONNX 우선 / LightGBM 폴백<br/>확률 ≥ 0.60 시 진입 허용"]
+        ML["ml_filter.py<br/>MLFilter<br/>ONNX 우선 / LightGBM 폴백<br/>확률 ≥ 0.55 시 진입 허용"]
         RM["risk_manager.py<br/>RiskManager (공유 싱글턴)<br/>일일 손실 5% 한도<br/>동적 증거금 비율<br/>동일 방향 제한"]
         EX["exchange.py<br/>BinanceFuturesClient<br/>주문·레버리지·잔고 API"]
         UDS["user_data_stream.py<br/>UserDataStream<br/>TP/SL 즉시 감지"]
         NT["notifier.py<br/>DiscordNotifier<br/>진입·청산·오류 알림"]
     end
 
-    subgraph mlops["MLOps 파이프라인 (맥미니 — 수동/크론)"]
+    subgraph mlops["MLOps 파이프라인 (수동/크론)"]
         FH["fetch_history.py<br/>과거 캔들 + OI/펀딩비<br/>Parquet Upsert"]
         DB["dataset_builder.py<br/>벡터화 데이터셋 생성<br/>레이블: ATR SL/TP 6시간 룩어헤드"]
         TM["train_model.py<br/>LightGBM 학습<br/>Walk-Forward 5폴드 검증"]
         TN["tune_hyperparams.py<br/>Optuna 50 trials<br/>TPE + MedianPruner"]
         AP["active_lgbm_params.json<br/>Active Config 패턴<br/>승인된 파라미터 저장"]
-        DM["deploy_model.sh<br/>rsync → LXC 서버<br/>봇 핫리로드 트리거"]
+        DM["deploy_model.sh<br/>rsync → 운영 서버<br/>봇 핫리로드 트리거"]
     end
 
     WS1 -->|캔들 마감 이벤트| DS
@@ -84,26 +114,55 @@ flowchart TD
     DM -->|모델 파일 전송| ML
 ```
 
-### 기술 스택 요약
+---
 
-| 분류 | 기술 |
-|------|------|
-| 언어 | Python 3.11+ |
-| 비동기 런타임 | `asyncio` + `python-binance` WebSocket |
-| 기술 지표 | `pandas-ta` (RSI, MACD, BB, EMA, StochRSI, ATR) |
-| ML 프레임워크 | `LightGBM` (CPU) / `MLX` (Apple Silicon GPU) |
-| 모델 서빙 | `onnxruntime` (ONNX 우선) / `joblib` (LightGBM 폴백) |
-| 하이퍼파라미터 탐색 | `Optuna` (TPE Sampler + MedianPruner) |
-| 데이터 저장 | `Parquet` (pyarrow) |
-| 로깅 | `Loguru` |
-| 알림 | Discord Webhook (`httpx`) |
-| 컨테이너화 | Docker + Docker Compose |
-| CI/CD | Jenkins + Gitea Container Registry |
-| 운영 서버 | LXC 컨테이너 (`10.1.10.24`) |
+## 2. 매매 판단 과정
+
+봇이 매매를 결정하는 과정을 단계별로 설명합니다. 코드를 읽기 전에 이 섹션을 먼저 이해하면 전체 구조가 명확해집니다.
+
+### 2.1 진입 판단 (5단계 게이트)
+
+```
+Gate 1: 추세 존재 확인
+  └─ ADX ≥ 25 인가? → 미만이면 HOLD (횡보장 진입 차단)
+
+Gate 2: 기술 지표 신호 생성
+  └─ RSI, MACD, 볼린저, EMA, StochRSI 점수 합산
+  └─ 합계 ≥ SIGNAL_THRESHOLD(기본 3)인가?
+
+Gate 3: 거래량 확인
+  └─ 거래량 ≥ 20MA × VOL_MULTIPLIER(기본 2.5)인가?
+  └─ 또는 신호 점수가 SIGNAL_THRESHOLD + 1 이상인가?
+
+Gate 4: ML 필터 (활성화 시)
+  └─ 26개 피처로 성공 확률 예측
+  └─ 확률 ≥ ML_THRESHOLD(기본 0.55)인가?
+
+Gate 5: 리스크 관리
+  └─ 일일 손실 한도 미초과?
+  └─ 동일 방향 포지션 2개 미만?
+  └─ 같은 심볼 기존 포지션 없음?
+
+→ 5개 게이트 모두 통과 → 주문 실행
+```
+
+### 2.2 청산 메커니즘
+
+| 청산 방식 | 설명 |
+|-----------|------|
+| **TP (익절)** | 진입가 ± ATR × ATR_TP_MULT 도달 시 자동 청산 |
+| **SL (손절)** | 진입가 ∓ ATR × ATR_SL_MULT 도달 시 자동 청산 |
+| **반대 시그널** | 보유 중 반대 방향 신호 → 즉시 청산 후 반대 방향 재진입 |
+
+### 2.3 현재 ML 필터 상태
+
+**현재 비활성화** (`NO_ML_FILTER=true`)
+
+Walk-Forward 검증 결과 각 폴드 학습 세트에 유효 신호가 약 27건으로, LightGBM이 의미 있는 패턴을 학습하기엔 표본이 부족합니다. 전략 파라미터 스윕에서 ADX 필터 + 거래량 배수 조합만으로 PF 1.57~2.39를 달성하여, 충분한 트레이드 데이터가 축적될 때까지 ML 없이 운영합니다.
 
 ---
 
-## 2. 코어 레이어 아키텍처
+## 3. 5개 레이어 상세
 
 봇은 5개의 레이어로 구성됩니다. 각 레이어는 단일 책임을 가지며, 위에서 아래로 데이터가 흐릅니다.
 
@@ -134,7 +193,7 @@ flowchart TD
 
 **파일:** `src/data_stream.py`
 
-각 봇 인스턴스가 시작되면 가장 먼저 실행되는 레이어입니다. Binance Combined WebSocket 단일 연결로 주 거래 심볼 + 상관관계 심볼(BTC/ETH)의 15분봉 캔들을 동시에 수신합니다.
+Binance Combined WebSocket 단일 연결로 주 거래 심볼 + 상관관계 심볼(BTC/ETH)의 15분봉 캔들을 동시에 수신합니다.
 
 **핵심 동작:**
 
@@ -170,7 +229,7 @@ flowchart TD
 | ADX | length=14 | 추세 강도 측정 → 횡보장 필터 (ADX < 25 시 진입 차단) |
 | Volume MA | length=20 | 거래량 급증 감지 |
 
-**신호 생성 로직 (ADX 필터 + 가중치 합산):**
+**신호 생성 로직:**
 
 ```
 [1단계] ADX 횡보장 필터:
@@ -183,9 +242,12 @@ flowchart TD
   EMA 정배열 (9 > 21 > 50)           → +1
   StochRSI K < 20 and K > D         → +1
 
-진입 조건: 점수 ≥ SIGNAL_THRESHOLD(기본 3) AND (거래량 ≥ 20MA × VOL_MULTIPLIER(기본 2.5) OR 점수 ≥ SIGNAL_THRESHOLD + 1)
+진입 조건: 점수 ≥ SIGNAL_THRESHOLD(기본 3)
+  AND (거래량 ≥ 20MA × VOL_MULTIPLIER(기본 2.5) OR 점수 ≥ SIGNAL_THRESHOLD + 1)
+
 SL = 진입가 - ATR × ATR_SL_MULT (기본 2.0)
 TP = 진입가 + ATR × ATR_TP_MULT (기본 2.0)
+
 ※ SL/TP/신호임계값/ADX/거래량배수 모두 환경변수로 설정 가능
 ```
 
@@ -197,7 +259,7 @@ TP = 진입가 + ATR × ATR_TP_MULT (기본 2.0)
 
 **파일:** `src/ml_filter.py`, `src/ml_features.py`
 
-기술 지표 신호가 발생해도 ML 모델이 "이 타점은 실패 확률이 높다"고 판단하면 진입을 차단합니다. 오진입(억까 타점)을 줄이는 2차 게이트키퍼입니다.
+기술 지표 신호가 발생해도 ML 모델이 "이 타점은 실패 확률이 높다"고 판단하면 진입을 차단합니다. 오진입을 줄이는 2차 게이트키퍼입니다.
 
 **모델 우선순위:**
 
@@ -238,12 +300,8 @@ OI 파생 피처 (2개):
 
 ```python
 proba = model.predict_proba(features)[0][1]  # 성공 확률
-return proba >= 0.55  # 임계값 55% (ML_THRESHOLD 환경변수)
+return proba >= 0.55  # 임계값 (ML_THRESHOLD 환경변수로 조절)
 ```
-
-**ML 필터 현황 — 현재 비활성화 상태:**
-
-프로덕션에서 `NO_ML_FILTER=true`로 ML 필터를 비활성화하고 있습니다. Walk-Forward 검증 결과 각 폴드 학습 세트에 유효 신호가 약 27건으로, LightGBM이 의미 있는 패턴을 학습하기엔 표본이 절대적으로 부족합니다. 모든 입력에 동일한 확률(~0.55)을 출력하여 필터링 효과가 없었습니다. 전략 파라미터 스윕에서 ADX 필터(≥25) + 거래량 배수(2.5) 조합만으로 PF 1.57~2.39를 달성하여, 충분한 트레이드 데이터가 축적될 때까지 ML 없이 운영합니다.
 
 ---
 
@@ -267,12 +325,10 @@ ML 필터를 통과한 신호를 실제 주문으로 변환하고, 리스크 한
 
 ```
 1. set_leverage(10x)
-2. place_order(MARKET)          ← 진입
-3. place_order(STOP_MARKET)     ← SL 설정
-4. place_order(TAKE_PROFIT_MARKET) ← TP 설정
+2. place_order(MARKET)              ← 진입
+3. place_order(STOP_MARKET)         ← SL 설정
+4. place_order(TAKE_PROFIT_MARKET)  ← TP 설정
 ```
-
-SL/TP 주문은 `/fapi/v1/algoOrder` 엔드포인트로 전송됩니다 (일반 계정의 `-4120` 오류 대응).
 
 **리스크 제어:**
 
@@ -319,7 +375,7 @@ Binance `ORDER_TRADE_UPDATE` 웹소켓 이벤트를 구독하여 TP/SL 체결을
 net_pnl = realized_pnl - commission
 ```
 
-**Discord 알림 포맷:**
+**Discord 알림 예시:**
 
 진입 시:
 ```
@@ -331,7 +387,7 @@ RSI: 32.50 | MACD Hist: -0.000123 | ATR: 0.023400
 
 청산 시:
 ```
-✅ [XRPUSDT] LONG TP 청산
+[XRPUSDT] LONG TP 청산
 청산가:               2.4150
 예상 수익:            +7.0000 USDT
 실제 순수익:          +6.7800 USDT
@@ -340,20 +396,20 @@ RSI: 32.50 | MACD Hist: -0.000123 | ATR: 0.023400
 
 ---
 
-## 3. MLOps 파이프라인 — 자가 진화 시스템
+## 4. MLOps 파이프라인
 
-봇의 ML 모델은 고정된 것이 아니라 주기적으로 재학습·개선됩니다. 전체 라이프사이클은 다음과 같습니다.
+봇의 ML 모델은 고정된 것이 아니라 주기적으로 재학습·개선됩니다.
 
-### 3.1 전체 라이프사이클
+### 4.1 전체 라이프사이클
 
 ```mermaid
 flowchart LR
-    A["주말 수동 트리거<br/>tune_hyperparams.py<br/>(Optuna 50 trials, ~30분)"]
+    A["주말 수동 트리거<br/>tune_hyperparams.py<br/>(Optuna 50 trials)"]
     B["결과 검토<br/>tune_results_YYYYMMDD.json<br/>Best AUC vs Baseline 비교"]
     C{"개선폭 충분?<br/>(AUC +0.01 이상<br/>폴드 분산 낮음)"}
     D["active_lgbm_params.json<br/>업데이트<br/>(Active Config 패턴)"]
-    E["새벽 2시 크론탭<br/>train_and_deploy.sh<br/>(데이터 수집 → 학습 → 배포)"]
-    F["LXC 서버<br/>lgbm_filter.pkl 교체"]
+    E["크론탭 또는 수동 실행<br/>train_and_deploy.sh<br/>(데이터 수집 → 학습 → 배포)"]
+    F["운영 서버<br/>lgbm_filter.pkl 교체"]
     G["봇 핫리로드<br/>다음 캔들 mtime 감지<br/>→ 자동 리로드"]
 
     A --> B
@@ -366,7 +422,7 @@ flowchart LR
     G --> A
 ```
 
-### 3.2 단계별 상세 설명
+### 4.2 단계별 상세
 
 #### Step 1: Optuna 하이퍼파라미터 탐색
 
@@ -416,7 +472,7 @@ Optuna가 찾은 파라미터는 **자동으로 적용되지 않습니다.** 사
 
 > **주의**: Optuna 결과는 과적합 위험이 있습니다. 폴드별 AUC 분산이 크거나 (std > 0.05), 개선폭이 미미하면 (< 0.01) 적용하지 않는 것을 권장합니다.
 
-#### Step 3: 자동 학습 및 배포 (크론탭)
+#### Step 3: 자동 학습 및 배포
 
 `scripts/train_and_deploy.sh`는 3단계를 자동으로 실행합니다:
 
@@ -433,8 +489,8 @@ Optuna가 찾은 파라미터는 **자동으로 적용되지 않습니다.** 사
   - Walk-Forward 5폴드 검증 후 최종 모델 저장
   - 학습 로그: models/{symbol}/training_log.json
 
-[3/3] LXC 배포 (deploy_model.sh --symbol {SYM})
-  - rsync로 models/{symbol}/lgbm_filter.pkl → LXC 서버 전송
+[3/3] 운영 서버 배포 (deploy_model.sh --symbol {SYM})
+  - rsync로 models/{symbol}/lgbm_filter.pkl → 운영 서버 전송
   - 기존 모델 자동 백업 (lgbm_filter_prev.pkl)
   - ONNX 파일 충돌 방지 (우선순위 보장)
 ```
@@ -456,18 +512,18 @@ if onnx_changed or lgbm_changed:
 
 매 캔들 마감(15분)마다 모델 파일의 `mtime`을 확인합니다. 변경이 감지되면 즉시 리로드합니다.
 
-### 3.3 주간 전략 모니터링
+### 4.3 주간 전략 모니터링
 
 `scripts/weekly_report.py`가 매주 자동으로 전략 성능을 측정하고 Discord로 리포트를 전송합니다.
 
 ```
 [매주 일요일 크론탭]
 
-[1/6] 데이터 수집 (fetch_history.py × 3심볼, 최근 35일 Upsert)
+[1/6] 데이터 수집 (fetch_history.py × 심볼 수, 최근 35일 Upsert)
 [2/6] Walk-Forward 백테스트 (심볼별 → 합산 PF/승률/MDD)
-[3/6] 실전 봇 로그 파싱 (이번 주 진입/청산 기록)
-[4/6] 추이 분석 (이전 results/weekly/*.json에서 PF/승률/MDD 추이)
-[5/6] ML 재도전 체크 (누적 트레이드 ≥ 150, PF < 1.0, PF 3주 하락 → 2/3 충족 시 권장)
+[3/6] 운영 대시보드 API 조회 (GET /api/trades + GET /api/stats → 실전 거래 통계)
+[4/6] 추이 분석 (이전 리포트에서 PF/승률/MDD 추이 로드)
+[5/6] ML 재학습 체크 (누적 트레이드 ≥ 150, PF < 1.0, PF 3주 하락 → 2/3 충족 시 권장)
 [6/6] PF < 1.0이면 파라미터 스윕 실행 → 상위 3개 대안 제시
 
 → Discord 알림 + results/weekly/report_YYYY-MM-DD.json 저장
@@ -475,7 +531,7 @@ if onnx_changed or lgbm_changed:
 
 **전략 파라미터 스윕**: 성능 저하 감지 시 324개 파라미터 조합(SL/TP/ADX/신호임계값/거래량배수)을 자동 탐색하여 현재보다 높은 PF의 대안을 제시합니다. 자동 적용되지 않으며, 사람이 검토 후 승인해야 합니다.
 
-### 3.4 레이블 생성 방식
+### 4.4 레이블 생성 방식
 
 학습 데이터의 레이블은 **미래 6시간(24캔들) 룩어헤드**로 생성됩니다.
 
@@ -494,11 +550,11 @@ if onnx_changed or lgbm_changed:
 
 ---
 
-## 4. 핵심 동작 시나리오
+## 5. 핵심 동작 시나리오
 
-### 시나리오 1: 15분 캔들 마감 시 봇의 동작 흐름
+### 시나리오 1: 15분 캔들 마감 → 진입 판단
 
-> "XRP 15분봉이 마감되면 봇은 무엇을 하는가?"
+> "15분봉이 마감되면 봇은 무엇을 하는가?"
 
 ```mermaid
 sequenceDiagram
@@ -529,7 +585,7 @@ sequenceDiagram
         BOT->>MF: build_features(df, signal, btc_df, eth_df, oi_change, funding_rate)
         MF-->>BOT: features (26개 피처 Series)
         BOT->>ML: should_enter(features)
-        ML-->>BOT: proba=0.73 ≥ 0.60 → True
+        ML-->>BOT: proba=0.73 ≥ 0.55 → True
 
         BOT->>EX: get_balance()
         BOT->>RM: get_dynamic_margin_ratio(balance)
@@ -551,7 +607,7 @@ sequenceDiagram
 
 ---
 
-### 시나리오 2: TP/SL 체결 시 봇의 동작 흐름
+### 시나리오 2: TP/SL 체결 → 포지션 종료
 
 > "거래소에서 TP가 작동하면 봇은 어떻게 반응하는가?"
 
@@ -589,118 +645,102 @@ sequenceDiagram
 
 **핵심 포인트:**
 - User Data Stream은 `asyncio.gather()`로 캔들 스트림과 **병렬** 실행
-- 체결 즉시 감지 (최대 15분 지연이었던 폴링 방식 대비 실시간)
+- 체결 즉시 감지 (폴링 방식의 최대 15분 지연 해소)
 - `realized_pnl - commission` = 정확한 순수익 (슬리피지·수수료 포함)
 - `_is_reentering` 플래그: 반대 시그널 재진입 중에는 콜백이 신규 포지션 상태를 초기화하지 않음
 
 ---
 
-## 5. 테스트 커버리지
+## 6. 테스트 커버리지
 
-### 5.1 테스트 파일 구성
-
-`tests/` 폴더에 15개 테스트 파일, 총 **135개의 테스트 케이스**가 작성되어 있습니다.
+### 6.1 테스트 실행
 
 ```bash
 pytest tests/ -v          # 전체 실행
 bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 ```
 
-### 5.2 모듈별 테스트 현황
+`tests/` 폴더에 15개 테스트 파일, 총 **136개의 테스트 케이스**가 작성되어 있습니다.
 
-| 테스트 파일 | 대상 모듈 | 테스트 케이스 | 주요 검증 항목 |
-|------------|----------|:------------:|--------------|
-| `test_bot.py` | `src/bot.py` | 11 | 반대 시그널 재진입 흐름, ML 차단 시 재진입 스킵, OI/펀딩비 피처 전달, OI 변화율 계산 |
-| `test_indicators.py` | `src/indicators.py` | 7 | RSI 범위(0~100), MACD 컬럼 존재, 볼린저 밴드 상하단 대소관계, 신호 반환값 유효성, ADX 컬럼 존재, ADX<25 횡보장 차단, ADX NaN 폴스루 |
-| `test_ml_features.py` | `src/ml_features.py` | 11 | 26개 피처 수, BTC/ETH 포함 시 피처 수, RS 분모 0 처리, NaN 없음, side 인코딩, OI/펀딩비 파라미터 반영 |
-| `test_ml_filter.py` | `src/ml_filter.py` | 5 | 모델 없을 때 폴백 허용, 임계값 이상/미만 판단, 핫리로드 후 상태 변화 |
-| `test_risk_manager.py` | `src/risk_manager.py` | 13 | 일일 손실 한도 초과 차단, 최대 포지션 수 제한, 동일 방향 제한, 심볼 중복 차단, 비동기 포지션 등록/해제, 동적 증거금 비율 상한/하한 클램핑 |
-| `test_exchange.py` | `src/exchange.py` | 8 | 수량 계산(기본/최소명목금액/잔고0), OI·펀딩비 조회 정상/오류 시 반환값 |
-| `test_data_stream.py` | `src/data_stream.py` | 6 | 3심볼 버퍼 존재, 빈 버퍼 None 반환, 캔들 파싱, 마감 캔들 콜백 호출, 프리로드 200개 |
-| `test_label_builder.py` | `src/label_builder.py` | 4 | LONG TP 도달 → 1, LONG SL 도달 → 0, 미결 → None, SHORT TP 도달 → 1 |
-| `test_dataset_builder.py` | `src/dataset_builder.py` | 9 | DataFrame 반환, 필수 컬럼 존재, 레이블 이진값, BTC/ETH 포함 시 23개 피처, inf/NaN 없음, OI nan 마스킹, RS 분모 0 처리 |
-| `test_mlx_filter.py` | `src/mlx_filter.py` | 5 | GPU 디바이스 확인, 학습 전 예측 형태, 학습 후 유효 확률, NaN 피처 처리, 저장/로드 후 동일 예측 |
-| `test_fetch_history.py` | `scripts/fetch_history.py` | 5 | OI=0 구간 Upsert, 신규 행 추가, 기존 비0값 보존, 파일 없을 때 신규 반환, 타임스탬프 오름차순 정렬 |
-| `test_config.py` | `src/config.py` | 6 | 환경변수 로드, 동적 증거금 파라미터 로드, `symbols` 리스트, `correlation_symbols`, `max_same_direction`, SYMBOL→symbols 폴백 |
-| `test_weekly_report.py` | `scripts/weekly_report.py` | 14 | 데이터 수집 subprocess 호출, WF 백테스트 실행, 로그 파싱(진입/청산), 추이 로드(PF 하락 감지), ML 트리거 체크, 성능 저하 스윕, Discord 포맷/전송, JSON 저장 |
+### 6.2 모듈별 테스트 현황
+
+| 테스트 파일 | 대상 모듈 | 케이스 | 주요 검증 항목 |
+|------------|----------|:------:|--------------|
+| `test_bot.py` | `src/bot.py` | 11 | 반대 시그널 재진입, ML 차단 시 스킵, OI/펀딩비 피처 전달 |
+| `test_indicators.py` | `src/indicators.py` | 7 | RSI 범위, MACD 컬럼, 볼린저 대소관계, ADX 횡보장 차단 |
+| `test_ml_features.py` | `src/ml_features.py` | 11 | 26개 피처 수, RS 분모 0 처리, NaN 없음 |
+| `test_ml_filter.py` | `src/ml_filter.py` | 5 | 모델 없을 때 폴백, 임계값 판단, 핫리로드 |
+| `test_risk_manager.py` | `src/risk_manager.py` | 13 | 일일 손실 한도, 동일 방향 제한, 동적 증거금 비율 |
+| `test_exchange.py` | `src/exchange.py` | 8 | 수량 계산, OI·펀딩비 조회 정상/오류 |
+| `test_data_stream.py` | `src/data_stream.py` | 6 | 3심볼 버퍼, 캔들 파싱, 프리로드 200개 |
+| `test_label_builder.py` | `src/label_builder.py` | 4 | TP/SL 도달 레이블, 미결 → None |
+| `test_dataset_builder.py` | `src/dataset_builder.py` | 9 | DataFrame 반환, 필수 컬럼, inf/NaN 없음 |
+| `test_mlx_filter.py` | `src/mlx_filter.py` | 5 | GPU 학습, 저장/로드 동일 예측 (Apple Silicon 전용) |
+| `test_fetch_history.py` | `scripts/fetch_history.py` | 5 | OI=0 Upsert, 중복 방지, 타임스탬프 정렬 |
+| `test_config.py` | `src/config.py` | 6 | 환경변수 로드, symbols 리스트 파싱 |
+| `test_weekly_report.py` | `scripts/weekly_report.py` | 15 | 백테스트, 대시보드 API, 추이 분석, ML 트리거, 스윕 |
 
 > `test_mlx_filter.py`는 Apple Silicon(`mlx` 패키지)이 없는 환경에서 자동 스킵됩니다.
 
-### 5.3 커버리지 매트릭스
+### 6.3 커버리지 매트릭스
 
-아래는 핵심 비즈니스 로직의 테스트 커버 여부입니다.
-
-| 기능 | 단위 테스트 | 통합 수준 테스트 | 비고 |
-|------|:----------:|:--------------:|------|
-| 기술 지표 계산 (RSI/MACD/BB/EMA/StochRSI/ADX) | ✅ | ✅ | `test_indicators` + `test_ml_features` + `test_dataset_builder` |
+| 기능 | 단위 | 통합 | 비고 |
+|------|:----:|:----:|------|
+| 기술 지표 계산 | ✅ | ✅ | `test_indicators` + `test_ml_features` + `test_dataset_builder` |
 | 신호 생성 (가중치 합산) | ✅ | ✅ | `test_indicators` + `test_dataset_builder` |
-| ADX 횡보장 필터 (ADX < 25 차단) | ✅ | ✅ | `test_indicators` + `test_dataset_builder` (`_calc_signals` 실제 호출) |
-| ML 피처 추출 (26개) | ✅ | ✅ | `test_ml_features` + `test_dataset_builder` (`_calc_features_vectorized` 실제 호출) |
-| ML 필터 추론 (임계값 판단) | ✅ | — | `test_ml_filter` |
+| ADX 횡보장 필터 | ✅ | ✅ | `test_indicators` |
+| ML 피처 추출 (26개) | ✅ | ✅ | `test_ml_features` + `test_dataset_builder` |
+| ML 필터 추론 | ✅ | — | `test_ml_filter` |
 | MLX 신경망 학습/저장/로드 | ✅ | — | `test_mlx_filter` (Apple Silicon 전용) |
-| 레이블 생성 (SL/TP 룩어헤드) | ✅ | ✅ | `test_label_builder` + `test_dataset_builder` (전체 파이프라인 실제 호출) |
+| 레이블 생성 (SL/TP 룩어헤드) | ✅ | ✅ | `test_label_builder` + `test_dataset_builder` |
 | 벡터화 데이터셋 빌더 | ✅ | ✅ | `test_dataset_builder` |
-| 동적 증거금 비율 계산 | ✅ | — | `test_risk_manager` |
+| 동적 증거금 비율 | ✅ | — | `test_risk_manager` |
 | 동일 방향 포지션 제한 | ✅ | — | `test_risk_manager` |
-| 심볼 중복 진입 차단 | ✅ | — | `test_risk_manager` |
-| 일일 손실 한도 제어 | ✅ | — | `test_risk_manager` |
+| 일일 손실 한도 | ✅ | — | `test_risk_manager` |
 | 포지션 수량 계산 | ✅ | — | `test_exchange` |
-| OI/펀딩비 API 조회 (정상/오류) | ✅ | ✅ | `test_exchange` + `test_bot` (`process_candle` → OI/펀딩비 → `build_features` 전달) |
-| 반대 시그널 재진입 흐름 | ✅ | ✅ | `test_bot` |
-| ML 차단 시 재진입 스킵 | ✅ | ✅ | `test_bot` (`_close_and_reenter` → ML 판단 → 스킵 전체 흐름) |
-| OI 변화율 계산 (API 실패 폴백) | ✅ | ✅ | `test_bot` (`process_candle` → OI 조회 → `_calc_oi_change` 흐름) |
-| 캔들 버퍼 관리 및 프리로드 | ✅ | — | `test_data_stream` |
-| Parquet Upsert (OI=0 보충) | ✅ | — | `test_fetch_history` |
-| 주간 리포트 (백테스트+로그+추이+스윕) | ✅ | ✅ | `test_weekly_report` (14개 테스트: 데이터 수집, 백테스트, 로그 파싱, 추이, ML 트리거, 스윕, 포맷, 전송, JSON 저장) |
-| User Data Stream TP/SL 감지 | ❌ | — | 미작성 (실제 WebSocket 의존) |
+| OI/펀딩비 API 조회 | ✅ | ✅ | `test_exchange` + `test_bot` |
+| 반대 시그널 재진입 | ✅ | ✅ | `test_bot` |
+| OI 변화율 계산 | ✅ | ✅ | `test_bot` |
+| Parquet Upsert | ✅ | — | `test_fetch_history` |
+| 주간 리포트 | ✅ | ✅ | `test_weekly_report` |
+| User Data Stream TP/SL | ❌ | — | 미작성 (WebSocket 의존) |
 | Discord 알림 전송 | ❌ | — | 미작성 (외부 웹훅 의존) |
-| CI/CD 파이프라인 | ❌ | — | Jenkins 환경 의존 |
 
-### 5.4 테스트 전략
+### 6.4 테스트 전략
 
-**Mock 활용 원칙:**
-- Binance API 호출(`BinanceFuturesClient`, `AsyncClient`)은 모두 `unittest.mock.AsyncMock`으로 대체합니다.
-- 외부 의존성(Discord Webhook, Binance WebSocket)은 테스트 대상에서 제외합니다.
-- `tmp_path` pytest fixture로 Parquet 파일 I/O를 격리합니다.
-
-**비동기 테스트:**
-- `pytest-asyncio`를 사용하며, `@pytest.mark.asyncio` 데코레이터로 `async def` 테스트를 실행합니다.
-
-**경계값 및 엣지 케이스 중심:**
-- 분모 0 (RS 계산, bb_range, vol_ma20)
-- API 실패 시 `None` 반환 및 `0.0` 폴백
-- 최소 명목금액 미달 시 주문 스킵
-- OI=0 구간 Parquet Upsert 보존/덮어쓰기 조건
+- **Mock 원칙**: Binance API 호출은 모두 `unittest.mock.AsyncMock`으로 대체. 외부 의존성(Discord, WebSocket)은 테스트 대상에서 제외.
+- **비동기 테스트**: `pytest-asyncio` + `@pytest.mark.asyncio`
+- **경계값 중심**: 분모 0 처리, API 실패 폴백, 최소 주문 금액 미달, OI=0 구간 Upsert
 
 ---
 
-## 부록: 파일별 역할 요약
+## 7. 파일 구조
 
 | 파일 | 레이어 | 역할 |
 |------|--------|------|
 | `main.py` | — | 진입점. 심볼별 `TradingBot` 생성 + 공유 `RiskManager` + `asyncio.gather()` |
-| `src/bot.py` | 오케스트레이터 | 심볼별 독립 트레이딩 루프 (symbol, risk 주입) |
+| `src/bot.py` | 오케스트레이터 | 심볼별 독립 트레이딩 루프 |
 | `src/config.py` | — | 환경변수 기반 설정 (`symbols` 리스트, `correlation_symbols`) |
 | `src/data_stream.py` | Data | Combined WebSocket 캔들 수신·버퍼 관리 |
 | `src/indicators.py` | Signal | 기술 지표 계산 및 복합 신호 생성 |
 | `src/ml_features.py` | ML Filter | 26개 ML 피처 추출 |
 | `src/ml_filter.py` | ML Filter | ONNX/LightGBM 모델 로드·추론·핫리로드 |
 | `src/mlx_filter.py` | ML Filter | Apple Silicon GPU 학습 + ONNX export |
-| `src/exchange.py` | Execution | Binance Futures REST API 클라이언트 (심볼별 독립) |
+| `src/exchange.py` | Execution | Binance Futures REST API 클라이언트 |
 | `src/risk_manager.py` | Risk | 공유 싱글턴 — 일일 손실 한도·동일 방향 제한·동적 증거금 비율 |
 | `src/user_data_stream.py` | Event | User Data Stream TP/SL 즉시 감지 |
 | `src/notifier.py` | Alert | Discord 웹훅 알림 |
 | `src/label_builder.py` | MLOps | 학습 레이블 생성 (ATR SL/TP 룩어헤드) |
 | `src/dataset_builder.py` | MLOps | 벡터화 데이터셋 빌더 (학습용) |
-| `src/logger_setup.py` | — | Loguru 로거 설정 |
-| `scripts/fetch_history.py` | MLOps | 과거 캔들 + OI/펀딩비 수집 (`--symbol` 지원) |
-| `scripts/train_model.py` | MLOps | LightGBM 모델 학습 (`--symbol` 지원) |
-| `scripts/train_mlx_model.py` | MLOps | MLX 신경망 학습 (Apple Silicon GPU) |
-| `scripts/tune_hyperparams.py` | MLOps | Optuna 하이퍼파라미터 탐색 (`--symbol` 지원) |
-| `scripts/train_and_deploy.sh` | MLOps | 전체 파이프라인 (`--symbol` / `--all` 지원) |
-| `scripts/deploy_model.sh` | MLOps | 모델 파일 LXC 서버 전송 (`--symbol` 지원) |
-| `scripts/strategy_sweep.py` | MLOps | 전략 파라미터 그리드 스윕 (324개 조합) |
-| `scripts/weekly_report.py` | MLOps | 주간 전략 리포트 (백테스트+로그+추이+스윕+Discord) |
-| `scripts/run_backtest.py` | MLOps | 단일 백테스트 CLI |
 | `src/backtester.py` | MLOps | 백테스트 엔진 (단일 + Walk-Forward) |
-| `models/{symbol}/active_lgbm_params.json` | MLOps | 심볼별 승인된 LightGBM 파라미터 (Active Config) |
+| `src/logger_setup.py` | — | Loguru 로거 설정 |
+| `scripts/fetch_history.py` | MLOps | 과거 캔들 + OI/펀딩비 수집 |
+| `scripts/train_model.py` | MLOps | LightGBM 모델 학습 |
+| `scripts/train_mlx_model.py` | MLOps | MLX 신경망 학습 (Apple Silicon GPU) |
+| `scripts/tune_hyperparams.py` | MLOps | Optuna 하이퍼파라미터 탐색 |
+| `scripts/train_and_deploy.sh` | MLOps | 전체 파이프라인 (수집 → 학습 → 배포) |
+| `scripts/deploy_model.sh` | MLOps | 모델 파일 운영 서버 전송 |
+| `scripts/strategy_sweep.py` | MLOps | 전략 파라미터 그리드 스윕 (324개 조합) |
+| `scripts/weekly_report.py` | MLOps | 주간 전략 리포트 (백테스트+대시보드API+추이+스윕+Discord) |
+| `scripts/run_backtest.py` | MLOps | 단일 백테스트 CLI |
+| `models/{symbol}/active_lgbm_params.json` | MLOps | 심볼별 승인된 LightGBM 파라미터 |
