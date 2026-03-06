@@ -157,3 +157,59 @@ def load_trend(report_dir: str, weeks: int = 4) -> dict:
         "mdd": mdd_list,
         "pf_declining_3w": declining,
     }
+
+
+# ── ML 재학습 트리거 & 성능 저하 스윕 ─────────────────────────────
+from scripts.strategy_sweep import (
+    run_single_backtest,
+    generate_combinations,
+    PARAM_GRID,
+)
+
+ML_TRADE_THRESHOLD = 150
+
+
+def check_ml_trigger(
+    cumulative_trades: int,
+    current_pf: float,
+    pf_declining_3w: bool,
+) -> dict:
+    """ML 재학습 조건 체크. 3개 중 2개 이상 충족 시 권장."""
+    conditions = {
+        "cumulative_trades_enough": cumulative_trades >= ML_TRADE_THRESHOLD,
+        "pf_below_1": current_pf < 1.0,
+        "pf_declining_3w": pf_declining_3w,
+    }
+    met = sum(conditions.values())
+    return {
+        "conditions": conditions,
+        "met_count": met,
+        "recommend": met >= 2,
+        "cumulative_trades": cumulative_trades,
+        "threshold": ML_TRADE_THRESHOLD,
+    }
+
+
+def run_degradation_sweep(
+    symbols: list[str],
+    train_months: int,
+    test_months: int,
+    top_n: int = 3,
+) -> list[dict]:
+    """전체 파라미터 스윕을 실행하고 PF 상위 N개 대안을 반환한다."""
+    combos = generate_combinations(PARAM_GRID)
+    results = []
+
+    for params in combos:
+        try:
+            summary = run_single_backtest(symbols, params, train_months, test_months)
+            results.append({"params": params, "summary": summary})
+        except Exception as e:
+            logger.warning(f"스윕 실패: {e}")
+
+    results.sort(
+        key=lambda r: r["summary"]["profit_factor"]
+        if r["summary"]["profit_factor"] != float("inf") else 999,
+        reverse=True,
+    )
+    return results[:top_n]

@@ -110,3 +110,56 @@ def test_load_trend_empty_dir(tmp_path):
     trend = load_trend(str(tmp_path), weeks=4)
     assert trend["pf"] == []
     assert trend["pf_declining_3w"] is False
+
+
+def test_check_ml_trigger_all_met():
+    """3개 조건 모두 충족 시 recommend=True."""
+    from scripts.weekly_report import check_ml_trigger
+
+    result = check_ml_trigger(
+        cumulative_trades=200, current_pf=0.85, pf_declining_3w=True,
+    )
+    assert result["recommend"] is True
+    assert result["met_count"] == 3
+
+
+def test_check_ml_trigger_none_met():
+    """조건 미충족 시 recommend=False."""
+    from scripts.weekly_report import check_ml_trigger
+
+    result = check_ml_trigger(
+        cumulative_trades=50, current_pf=1.5, pf_declining_3w=False,
+    )
+    assert result["recommend"] is False
+    assert result["met_count"] == 0
+
+
+def test_run_degradation_sweep_returns_top_n():
+    """스윕을 실행하고 PF 상위 N개 대안을 반환."""
+    from scripts.weekly_report import run_degradation_sweep
+    from unittest.mock import patch
+
+    fake_summaries = [
+        {"profit_factor": 1.15, "total_trades": 30, "total_pnl": 50, "return_pct": 5,
+         "win_rate": 55, "avg_win": 10, "avg_loss": -8, "max_drawdown_pct": 10,
+         "sharpe_ratio": 2.0, "total_fees": 1, "close_reasons": {}},
+        {"profit_factor": 1.08, "total_trades": 25, "total_pnl": 30, "return_pct": 3,
+         "win_rate": 50, "avg_win": 8, "avg_loss": -7, "max_drawdown_pct": 12,
+         "sharpe_ratio": 1.5, "total_fees": 1, "close_reasons": {}},
+        {"profit_factor": 0.95, "total_trades": 20, "total_pnl": -10, "return_pct": -1,
+         "win_rate": 40, "avg_win": 6, "avg_loss": -9, "max_drawdown_pct": 15,
+         "sharpe_ratio": 0.5, "total_fees": 1, "close_reasons": {}},
+    ]
+    fake_combos = [
+        {"atr_sl_mult": 1.5}, {"atr_sl_mult": 1.0}, {"atr_sl_mult": 2.0},
+    ]
+
+    with patch("scripts.weekly_report.run_single_backtest") as mock_bt:
+        mock_bt.side_effect = fake_summaries
+        with patch("scripts.weekly_report.generate_combinations", return_value=fake_combos):
+            alternatives = run_degradation_sweep(
+                symbols=["XRPUSDT"], train_months=3, test_months=1, top_n=3,
+            )
+
+    assert len(alternatives) <= 3
+    assert alternatives[0]["summary"]["profit_factor"] >= alternatives[1]["summary"]["profit_factor"]
