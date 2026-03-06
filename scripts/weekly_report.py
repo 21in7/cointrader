@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
+import os
 import re
 import subprocess
 from datetime import date, timedelta
@@ -19,6 +20,7 @@ from datetime import date, timedelta
 from loguru import logger
 
 from src.backtester import WalkForwardBacktester, WalkForwardConfig
+from src.notifier import DiscordNotifier
 
 
 # ── 프로덕션 파라미터 ──────────────────────────────────────────────
@@ -213,3 +215,125 @@ def run_degradation_sweep(
         reverse=True,
     )
     return results[:top_n]
+
+
+# ── Discord 리포트 포맷 & 전송 ─────────────────────────────────────
+
+_EMOJI_CHART = "\U0001F4CA"
+_EMOJI_ALERT = "\U0001F6A8"
+_EMOJI_BELL = "\U0001F514"
+_CHECK = "\u2705"
+_UNCHECK = "\u2610"
+_WARN = "\u26A0"
+_ARROW = "\u2192"
+
+
+def format_report(data: dict) -> str:
+    """리포트 데이터를 Discord 메시지 텍스트로 포맷한다."""
+    d = data["date"]
+    bt = data["backtest"]["summary"]
+    pf = bt["profit_factor"]
+    pf_str = f"{pf:.2f}" if pf != float("inf") else "INF"
+
+    status = ""
+    if pf < 1.0:
+        status = f"  {_EMOJI_ALERT} 손실 구간"
+
+    lines = [
+        f"{_EMOJI_CHART} 주간 전략 리포트 ({d})",
+        "",
+        "[현재 성능 — Walk-Forward 백테스트]",
+        f"  합산 PF: {pf_str} | 승률: {bt['win_rate']:.0f}% | MDD: {bt['max_drawdown_pct']:.0f}%{status}",
+    ]
+
+    # 심볼별 성능
+    per_sym = data["backtest"].get("per_symbol", {})
+    if per_sym:
+        sym_parts = []
+        for sym, s in per_sym.items():
+            short = sym.replace("USDT", "")
+            spf = f"{s['profit_factor']:.2f}" if s["profit_factor"] != float("inf") else "INF"
+            sym_parts.append(f"{short}: PF {spf} ({s['total_trades']}건)")
+        lines.append(f"  {' | '.join(sym_parts)}")
+
+    # 실전 트레이드
+    lt = data["live_trades"]
+    if lt["count"] > 0:
+        lines += [
+            "",
+            "[실전 트레이드 (이번 주)]",
+            f"  거래: {lt['count']}건 | 순수익: {lt['net_pnl']:+.2f} USDT | 승률: {lt['win_rate']:.1f}%",
+        ]
+
+    # 추이
+    trend = data["trend"]
+    if trend["pf"]:
+        pf_trend = f" {_ARROW} ".join(f"{v:.2f}" for v in trend["pf"])
+        warn = f"  {_WARN} 하락 추세" if trend["pf_declining_3w"] else ""
+        pf_len = len(trend["pf"])
+        lines += ["", f"[추이 (최근 {pf_len}주)]", f"  PF: {pf_trend}{warn}"]
+        if trend["win_rate"]:
+            wr_trend = f" {_ARROW} ".join(f"{v:.0f}%" for v in trend["win_rate"])
+            lines.append(f"  승률: {wr_trend}")
+        if trend["mdd"]:
+            mdd_trend = f" {_ARROW} ".join(f"{v:.0f}%" for v in trend["mdd"])
+            lines.append(f"  MDD: {mdd_trend}")
+
+    # ML 재도전 체크리스트
+    ml = data["ml_trigger"]
+    cond = ml["conditions"]
+    threshold = ml["threshold"]
+    cum_trades = ml["cumulative_trades"]
+
+    c1 = _CHECK if cond["cumulative_trades_enough"] else _UNCHECK
+    c2 = _CHECK if cond["pf_below_1"] else _UNCHECK
+    c3 = _CHECK if cond["pf_declining_3w"] else _UNCHECK
+    pf_below_label = "예" if cond["pf_below_1"] else "아니오"
+    pf_dec_label = f"예 {_WARN}" if cond["pf_declining_3w"] else "아니오"
+
+    lines += [
+        "",
+        "[ML 재도전 체크리스트]",
+        f"  {c1} 누적 트레이드 \u2265 {threshold}건: {cum_trades}/{threshold}",
+        f"  {c2} PF < 1.0: {pf_below_label} (현재 {pf_str})",
+        f"  {c3} PF 3주 연속 하락: {pf_dec_label}",
+    ]
+    met_count = ml["met_count"]
+    if ml["recommend"]:
+        lines.append(f"  {_ARROW} {_EMOJI_BELL} ML 재학습 권장! ({met_count}/3 충족)")
+    else:
+        lines.append(f"  {_ARROW} ML 재도전 시점: 아직 아님 ({met_count}/3 충족)")
+
+    # 파라미터 스윕
+    sweep = data.get("sweep")
+    if sweep:
+        lines += ["", "[파라미터 스윕 결과]"]
+        lines.append(f"  현재: {_param_str(PROD_PARAMS)} {_ARROW} PF {pf_str}")
+        for i, alt in enumerate(sweep):
+            apf = alt["summary"]["profit_factor"]
+            apf_str = f"{apf:.2f}" if apf != float("inf") else "INF"
+            diff = apf - pf
+            idx = i + 1
+            lines.append(f"  대안 {idx}: {_param_str(alt['params'])} {_ARROW} PF {apf_str} ({diff:+.2f})")
+        lines.append("")
+        lines.append(f"  {_WARN} 자동 적용되지 않음. 검토 후 승인 필요.")
+    elif pf >= 1.0:
+        lines += ["", "[파라미터 스윕]", "  현재 파라미터가 최적 — 스윕 불필요"]
+
+    return "\n".join(lines)
+
+
+def _param_str(p: dict) -> str:
+    return (f"SL={p.get('atr_sl_mult', '?')}, TP={p.get('atr_tp_mult', '?')}, "
+            f"ADX={p.get('adx_threshold', '?')}, Vol={p.get('volume_multiplier', '?')}")
+
+
+def send_report(content: str, webhook_url: str | None = None) -> None:
+    """Discord 웹훅으로 리포트를 전송한다."""
+    url = webhook_url or os.getenv("DISCORD_WEBHOOK_URL", "")
+    if not url:
+        logger.warning("DISCORD_WEBHOOK_URL이 설정되지 않아 전송 스킵")
+        return
+    notifier = DiscordNotifier(url)
+    notifier._send(content)
+    logger.info("Discord 리포트 전송 완료")

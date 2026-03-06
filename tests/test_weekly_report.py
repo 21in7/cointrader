@@ -163,3 +163,72 @@ def test_run_degradation_sweep_returns_top_n():
 
     assert len(alternatives) <= 3
     assert alternatives[0]["summary"]["profit_factor"] >= alternatives[1]["summary"]["profit_factor"]
+
+
+def test_format_report_normal():
+    """정상 상태(PF >= 1.0) 리포트 포맷."""
+    from scripts.weekly_report import format_report
+
+    report_data = {
+        "date": "2026-03-07",
+        "backtest": {
+            "summary": {
+                "profit_factor": 1.24, "win_rate": 45.0,
+                "max_drawdown_pct": 12.0, "total_trades": 88,
+            },
+            "per_symbol": {
+                "XRPUSDT": {"profit_factor": 1.57, "total_trades": 27, "win_rate": 66.7},
+                "TRXUSDT": {"profit_factor": 1.29, "total_trades": 25, "win_rate": 52.0},
+                "DOGEUSDT": {"profit_factor": 1.09, "total_trades": 36, "win_rate": 44.4},
+            },
+        },
+        "live_trades": {"count": 8, "net_pnl": 12.34, "win_rate": 62.5},
+        "trend": {"pf": [1.31, 1.24], "win_rate": [48.0, 45.0], "mdd": [9.0, 12.0], "pf_declining_3w": False},
+        "ml_trigger": {"recommend": False, "met_count": 0, "conditions": {
+            "cumulative_trades_enough": False, "pf_below_1": False, "pf_declining_3w": False,
+        }, "cumulative_trades": 47, "threshold": 150},
+        "sweep": None,
+    }
+
+    text = format_report(report_data)
+    assert "\uc8fc\uac04 \uc804\ub7b5 \ub9ac\ud3ec\ud2b8" in text
+    assert "1.24" in text
+    assert "XRPUSDT" in text or "XRP" in text
+
+
+def test_format_report_degraded():
+    """PF < 1.0일 때 스윕 결과 + ML 권장이 포함되는지 확인."""
+    from scripts.weekly_report import format_report
+
+    report_data = {
+        "date": "2026-06-07",
+        "backtest": {
+            "summary": {"profit_factor": 0.87, "win_rate": 38.0, "max_drawdown_pct": 22.0, "total_trades": 90},
+            "per_symbol": {},
+        },
+        "live_trades": {"count": 0, "net_pnl": 0, "win_rate": 0},
+        "trend": {"pf": [1.1, 1.0, 0.87], "win_rate": [], "mdd": [], "pf_declining_3w": True},
+        "ml_trigger": {"recommend": True, "met_count": 3, "conditions": {
+            "cumulative_trades_enough": True, "pf_below_1": True, "pf_declining_3w": True,
+        }, "cumulative_trades": 182, "threshold": 150},
+        "sweep": [
+            {"params": {"atr_sl_mult": 2.0, "atr_tp_mult": 2.5, "adx_threshold": 30, "volume_multiplier": 2.5, "signal_threshold": 3},
+             "summary": {"profit_factor": 1.15, "total_trades": 30}},
+        ],
+    }
+
+    text = format_report(report_data)
+    assert "0.87" in text
+    assert "ML" in text
+    assert "1.15" in text
+
+
+def test_send_report_uses_notifier():
+    """Discord 웹훅으로 리포트를 전송."""
+    from scripts.weekly_report import send_report
+    from unittest.mock import patch
+
+    with patch("scripts.weekly_report.DiscordNotifier") as MockNotifier:
+        instance = MockNotifier.return_value
+        send_report("test report content", webhook_url="https://example.com/webhook")
+        instance._send.assert_called_once_with("test report content")
