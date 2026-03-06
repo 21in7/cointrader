@@ -73,3 +73,40 @@ def test_parse_live_trades_empty_log(tmp_path):
 
     trades = parse_live_trades(str(tmp_path / "nonexistent.log"), days=7)
     assert trades == []
+
+
+import json
+from datetime import date, timedelta
+
+
+def test_load_trend_reads_previous_reports(tmp_path):
+    """이전 주간 리포트를 읽어 PF/승률/MDD 추이를 반환."""
+    from scripts.weekly_report import load_trend
+
+    for i, (pf, wr, mdd) in enumerate([
+        (1.31, 48.0, 9.0), (1.24, 45.0, 11.0),
+        (1.20, 44.0, 12.0), (1.18, 43.0, 14.0),
+    ]):
+        d = date(2026, 3, 7) - timedelta(weeks=3 - i)
+        report = {
+            "date": d.isoformat(),
+            "backtest": {"summary": {
+                "profit_factor": pf, "win_rate": wr, "max_drawdown_pct": mdd,
+                "total_trades": 20,
+            }},
+        }
+        (tmp_path / f"report_{d.isoformat()}.json").write_text(json.dumps(report))
+
+    trend = load_trend(str(tmp_path), weeks=4)
+    assert len(trend["pf"]) == 4
+    assert trend["pf"] == [1.31, 1.24, 1.20, 1.18]
+    assert trend["pf_declining_3w"] is True
+
+
+def test_load_trend_empty_dir(tmp_path):
+    """리포트가 없으면 빈 추이 반환."""
+    from scripts.weekly_report import load_trend
+
+    trend = load_trend(str(tmp_path), weeks=4)
+    assert trend["pf"] == []
+    assert trend["pf_declining_3w"] is False

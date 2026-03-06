@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import json
 import re
 import subprocess
 from datetime import date, timedelta
@@ -119,3 +120,40 @@ def parse_live_trades(log_path: str, days: int = 7) -> list[dict]:
             closed_trades.append(trade)
 
     return closed_trades
+
+
+# ── 추이 추적 ────────────────────────────────────────────────────
+WEEKLY_DIR = Path("results/weekly")
+
+
+def load_trend(report_dir: str, weeks: int = 4) -> dict:
+    """이전 주간 리포트에서 PF/승률/MDD 추이를 로드한다."""
+    rdir = Path(report_dir)
+    if not rdir.exists():
+        return {"pf": [], "win_rate": [], "mdd": [], "pf_declining_3w": False}
+
+    reports = sorted(rdir.glob("report_*.json"))
+    recent = reports[-weeks:] if len(reports) >= weeks else reports
+
+    pf_list, wr_list, mdd_list = [], [], []
+    for rpath in recent:
+        try:
+            data = json.loads(rpath.read_text())
+            s = data["backtest"]["summary"]
+            pf_list.append(s["profit_factor"])
+            wr_list.append(s["win_rate"])
+            mdd_list.append(s["max_drawdown_pct"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+    declining = False
+    if len(pf_list) >= 3:
+        last3 = pf_list[-3:]
+        declining = last3[0] > last3[1] > last3[2]
+
+    return {
+        "pf": pf_list,
+        "win_rate": wr_list,
+        "mdd": mdd_list,
+        "pf_declining_3w": declining,
+    }
