@@ -94,6 +94,13 @@ class UserDataStream:
         net_pnl    = realized_pnl - commission
         exit_price = float(order.get("ap", "0"))
 
+        if exit_price == 0.0:
+            logger.warning(
+                f"[{self._symbol}] 청산 이벤트에서 exit_price=0.0 — "
+                f"ap 필드 누락 가능. 청산 처리 스킵 (rp={realized_pnl:+.4f})"
+            )
+            return
+
         if order_type == "TAKE_PROFIT_MARKET":
             close_reason = "TP"
         elif order_type == "STOP_MARKET":

@@ -44,12 +44,23 @@ async def _fetch_klines_with_client(
     start_ts = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
     all_klines = []
     while True:
-        klines = await client.futures_klines(
-            symbol=symbol,
-            interval=interval,
-            startTime=start_ts,
-            limit=1500,
-        )
+        for attempt in range(3):
+            try:
+                klines = await client.futures_klines(
+                    symbol=symbol,
+                    interval=interval,
+                    startTime=start_ts,
+                    limit=1500,
+                )
+                break
+            except Exception as e:
+                if attempt < 2:
+                    wait = 2 ** (attempt + 1)
+                    print(f"  [{symbol}] API 오류 ({e}), {wait}초 후 재시도 ({attempt+1}/3)")
+                    await asyncio.sleep(wait)
+                else:
+                    print(f"  [{symbol}] API 3회 실패, 수집 중단: {e}")
+                    raise
         if not klines:
             break
         all_klines.extend(klines)
@@ -311,6 +322,7 @@ def upsert_parquet(path: "Path | str", new_df: pd.DataFrame) -> pd.DataFrame:
         if col in existing.columns:
             existing[col] = existing[col].fillna(0.0)
 
+    existing = existing[~existing.index.duplicated(keep='last')]
     return existing.sort_index()
 
 

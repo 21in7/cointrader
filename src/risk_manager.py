@@ -52,9 +52,10 @@ class RiskManager:
             self.daily_pnl += pnl
             logger.info(f"포지션 종료: {symbol}, PnL={pnl:+.4f}, 누적={self.daily_pnl:+.4f}")
 
-    def record_pnl(self, pnl: float):
-        self.daily_pnl += pnl
-        logger.info(f"오늘 누적 PnL: {self.daily_pnl:.4f} USDT")
+    async def record_pnl(self, pnl: float):
+        async with self._lock:
+            self.daily_pnl += pnl
+            logger.info(f"오늘 누적 PnL: {self.daily_pnl:.4f} USDT")
 
     def reset_daily(self):
         """매일 자정 초기화"""

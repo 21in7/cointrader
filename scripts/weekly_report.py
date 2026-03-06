@@ -418,7 +418,7 @@ def generate_report(
         for rpath in sorted(rdir.glob("report_*.json")):
             try:
                 prev = json.loads(rpath.read_text())
-                cumulative = max(cumulative, prev.get("live_trades", {}).get("count", 0))
+                cumulative += prev.get("live_trades", {}).get("count", 0)
             except (json.JSONDecodeError, KeyError):
                 pass
 
