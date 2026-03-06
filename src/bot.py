@@ -139,7 +139,7 @@ class TradingBot:
 
         ind = Indicators(df)
         df_with_indicators = ind.calculate_all()
-        raw_signal = ind.get_signal(
+        raw_signal, signal_detail = ind.get_signal(
             df_with_indicators,
             signal_threshold=self.config.signal_threshold,
             adx_threshold=self.config.adx_threshold,
@@ -147,7 +147,13 @@ class TradingBot:
         )
 
         current_price = df_with_indicators["close"].iloc[-1]
-        logger.info(f"[{self.symbol}] 신호: {raw_signal} | 현재가: {current_price:.4f} USDT")
+        adx_str = f"ADX={signal_detail['adx']:.1f}" if signal_detail['adx'] is not None else "ADX=N/A"
+        vol_str = "Vol급증" if signal_detail['vol_surge'] else "Vol정상"
+        score_str = f"L={signal_detail['long']} S={signal_detail['short']}"
+        if raw_signal == "HOLD" and signal_detail['hold_reason']:
+            logger.info(f"[{self.symbol}] 신호: HOLD | {score_str} | {adx_str} | {vol_str} | 사유: {signal_detail['hold_reason']} | 현재가: {current_price:.4f}")
+        else:
+            logger.info(f"[{self.symbol}] 신호: {raw_signal} | {score_str} | {adx_str} | {vol_str} | 현재가: {current_price:.4f}")
 
         position = await self.exchange.get_position()
 

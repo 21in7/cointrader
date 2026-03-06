@@ -58,23 +58,29 @@ class Indicators:
         signal_threshold: int = 3,
         adx_threshold: float = 25,
         volume_multiplier: float = 2.5,
-    ) -> str:
+    ) -> tuple[str, dict]:
         """
         복합 지표 기반 매매 신호 생성.
 
         signal_threshold: 최소 가중치 합계 (기본 3)
         adx_threshold: ADX 최소값 필터 (0=비활성화, 25=ADX<25이면 HOLD)
         volume_multiplier: 거래량 급증 배수 (기본 1.5)
+
+        Returns:
+            (signal, detail) — signal은 "LONG"/"SHORT"/"HOLD",
+            detail은 {"long": int, "short": int, "vol_surge": bool, "adx": float|None, "hold_reason": str}
         """
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
         # ADX 필터
         adx = last.get("adx", None)
-        if adx is not None and not pd.isna(adx):
-            logger.debug(f"ADX: {adx:.1f}")
-            if adx_threshold > 0 and adx < adx_threshold:
-                return "HOLD"
+        adx_val = adx if adx is not None and not pd.isna(adx) else None
+        if adx_val is not None:
+            logger.debug(f"ADX: {adx_val:.1f}")
+            if adx_threshold > 0 and adx_val < adx_threshold:
+                detail = {"long": 0, "short": 0, "vol_surge": False, "adx": adx_val, "hold_reason": f"ADX({adx_val:.1f}) < {adx_threshold}"}
+                return "HOLD", detail
 
         long_signals  = 0
         short_signals = 0
@@ -112,11 +118,23 @@ class Indicators:
         # 6. 거래량 확인 (신호 강화)
         vol_surge = last["volume"] > last["vol_ma20"] * volume_multiplier
 
+        detail = {"long": long_signals, "short": short_signals, "vol_surge": vol_surge, "adx": adx_val, "hold_reason": ""}
+
         if long_signals >= signal_threshold and (vol_surge or long_signals >= signal_threshold + 1):
-            return "LONG"
+            return "LONG", detail
         elif short_signals >= signal_threshold and (vol_surge or short_signals >= signal_threshold + 1):
-            return "SHORT"
-        return "HOLD"
+            return "SHORT", detail
+
+        # HOLD 사유 구성
+        best_side = "LONG" if long_signals >= short_signals else "SHORT"
+        best_score = max(long_signals, short_signals)
+        reasons = []
+        if best_score < signal_threshold:
+            reasons.append(f"{best_side} 점수({best_score}) < 임계값({signal_threshold})")
+        elif not vol_surge and best_score < signal_threshold + 1:
+            reasons.append(f"거래량 미급증 & {best_side} 점수({best_score}) < {signal_threshold + 1}")
+        detail["hold_reason"] = ", ".join(reasons) if reasons else "점수 부족"
+        return "HOLD", detail
 
     def get_atr_stop(
         self, df: pd.DataFrame, side: str, entry_price: float,

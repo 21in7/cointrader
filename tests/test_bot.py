@@ -92,7 +92,7 @@ async def test_bot_processes_signal(config, sample_df):
     with patch("src.bot.Indicators") as MockInd:
         mock_ind = MagicMock()
         mock_ind.calculate_all.return_value = sample_df
-        mock_ind.get_signal.return_value = "LONG"
+        mock_ind.get_signal.return_value = ("LONG", {"long": 3, "short": 0, "vol_surge": True, "adx": 30.0, "hold_reason": ""})
         mock_ind.get_atr_stop.return_value = (0.48, 0.56)
         MockInd.return_value = mock_ind
         await bot.process_candle(sample_df)
@@ -178,7 +178,7 @@ async def test_process_candle_calls_close_and_reenter_on_reverse_signal(config, 
     with patch("src.bot.Indicators") as MockInd:
         mock_ind = MagicMock()
         mock_ind.calculate_all.return_value = sample_df
-        mock_ind.get_signal.return_value = "SHORT"  # 현재 LONG 포지션에 반대 시그널
+        mock_ind.get_signal.return_value = ("SHORT", {"long": 0, "short": 3, "vol_surge": True, "adx": 30.0, "hold_reason": ""})  # 현재 LONG 포지션에 반대 시그널
         MockInd.return_value = mock_ind
         await bot.process_candle(sample_df)
 
@@ -207,7 +207,7 @@ async def test_process_candle_passes_raw_signal_to_close_and_reenter_even_if_ml_
     with patch("src.bot.Indicators") as MockInd:
         mock_ind = MagicMock()
         mock_ind.calculate_all.return_value = sample_df
-        mock_ind.get_signal.return_value = "SHORT"
+        mock_ind.get_signal.return_value = ("SHORT", {"long": 0, "short": 3, "vol_surge": True, "adx": 30.0, "hold_reason": ""})
         MockInd.return_value = mock_ind
         await bot.process_candle(sample_df)
 
@@ -243,7 +243,7 @@ async def test_process_candle_fetches_oi_and_funding(config, sample_df):
     with patch("src.bot.Indicators") as mock_ind_cls:
         mock_ind = MagicMock()
         mock_ind.calculate_all.return_value = sample_df
-        mock_ind.get_signal.return_value = "LONG"
+        mock_ind.get_signal.return_value = ("LONG", {"long": 3, "short": 0, "vol_surge": True, "adx": 30.0, "hold_reason": ""})
         mock_ind_cls.return_value = mock_ind
 
         with patch("src.bot.build_features_aligned") as mock_build:

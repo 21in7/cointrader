@@ -66,10 +66,11 @@ def test_adx_filter_blocks_low_adx(sample_df):
     df.loc[df.index[-1], "volume"] = df.loc[df.index[-1], "vol_ma20"] * 3
     df["adx"] = 15.0
     # 기본 adx_threshold=25이므로 ADX=15은 HOLD
-    signal = ind.get_signal(df)
+    signal, detail = ind.get_signal(df)
     assert signal == "HOLD"
+    assert "ADX" in detail["hold_reason"]
     # adx_threshold=0이면 ADX 필터 비활성화 → LONG
-    signal = ind.get_signal(df, adx_threshold=0)
+    signal, detail = ind.get_signal(df, adx_threshold=0)
     assert signal == "LONG"
 
 
@@ -78,13 +79,15 @@ def test_adx_nan_falls_through(sample_df):
     ind = Indicators(sample_df)
     df = ind.calculate_all()
     df["adx"] = float("nan")
-    signal = ind.get_signal(df)
+    signal, detail = ind.get_signal(df)
     # NaN이면 차단하지 않고 기존 로직 실행 → LONG/SHORT/HOLD 중 하나
     assert signal in ("LONG", "SHORT", "HOLD")
+    assert detail["adx"] is None
 
 
 def test_signal_returns_direction(sample_df):
     ind = Indicators(sample_df)
     df = ind.calculate_all()
-    signal = ind.get_signal(df)
+    signal, detail = ind.get_signal(df)
     assert signal in ("LONG", "SHORT", "HOLD")
+    assert "long" in detail and "short" in detail
