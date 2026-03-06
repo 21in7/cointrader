@@ -1,22 +1,22 @@
-# Weekly Strategy Report Implementation Plan
+# 주간 전략 리포트 구현 계획
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Automatically measure strategy performance weekly, track trends, detect degradation, and send Discord reports.
+**Goal:** 매주 전략 성능을 자동 측정하고, 추이를 추적하며, 성능 저하를 감지하고, Discord 리포트를 전송한다.
 
-**Architecture:** Single script `scripts/weekly_report.py` that orchestrates data fetch (subprocess), Walk-Forward backtest (import), log parsing (reuse `dashboard/api/log_parser.py`), trend analysis (read previous `results/weekly/*.json`), optional parameter sweep (import), and Discord notification (import `src/notifier.py`). No changes to production bot code.
+**Architecture:** 단일 스크립트 `scripts/weekly_report.py`가 데이터 수집(subprocess), Walk-Forward 백테스트(import), 로그 파싱(`dashboard/api/log_parser.py` 재사용), 추이 분석(기존 `results/weekly/*.json` 읽기), 선택적 파라미터 스윕(import), Discord 알림(`src/notifier.py` import)을 오케스트레이션한다. 프로덕션 봇 코드 변경 없음.
 
-**Tech Stack:** Python 3.12, existing backtester/sweep/notifier/log_parser modules, subprocess for `fetch_history.py`, httpx for Discord.
+**Tech Stack:** Python 3.12, 기존 backtester/sweep/notifier/log_parser 모듈, `fetch_history.py` subprocess 호출, Discord용 httpx.
 
 ---
 
-### Task 1: Create weekly report core — data fetch + backtest
+### Task 1: 주간 리포트 코어 — 데이터 수집 + 백테스트
 
 **Files:**
 - Create: `scripts/weekly_report.py`
 - Test: `tests/test_weekly_report.py`
 
-**Step 1: Write the failing test for `fetch_latest_data()`**
+**Step 1: `fetch_latest_data()` 실패 테스트 작성**
 
 ```python
 # tests/test_weekly_report.py
@@ -45,15 +45,15 @@ def test_fetch_latest_data_calls_subprocess():
     assert "35" in args_0
 ```
 
-**Step 2: Run test to verify it fails**
+**Step 2: 테스트 실행하여 실패 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py::test_fetch_latest_data_calls_subprocess -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'scripts.weekly_report'`
 
-**Step 3: Write the failing test for `run_backtest()`**
+**Step 3: `run_backtest()` 실패 테스트 작성**
 
 ```python
-# tests/test_weekly_report.py (append)
+# tests/test_weekly_report.py (추가)
 def test_run_backtest_returns_summary():
     """run_backtest가 심볼별 WF 백테스트를 실행하고 결과를 반환하는지 확인."""
     from scripts.weekly_report import run_backtest
@@ -91,7 +91,7 @@ def test_run_backtest_returns_summary():
     assert result["summary"]["total_trades"] == 27
 ```
 
-**Step 4: Write minimal implementation**
+**Step 4: 최소 구현 작성**
 
 ```python
 #!/usr/bin/env python3
@@ -167,30 +167,30 @@ def run_backtest(
     return wf.run()
 ```
 
-**Step 5: Run tests to verify they pass**
+**Step 5: 테스트 실행하여 통과 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -v`
 Expected: 2 PASS
 
-**Step 6: Commit**
+**Step 6: 커밋**
 
 ```bash
 git add scripts/weekly_report.py tests/test_weekly_report.py
-git commit -m "feat(weekly-report): add data fetch and WF backtest core"
+git commit -m "feat(weekly-report): 데이터 수집 및 WF 백테스트 코어 추가"
 ```
 
 ---
 
-### Task 2: Add live trade log parsing
+### Task 2: 실전 트레이드 로그 파싱 추가
 
 **Files:**
 - Modify: `scripts/weekly_report.py`
 - Test: `tests/test_weekly_report.py`
 
-**Step 1: Write the failing test**
+**Step 1: 실패 테스트 작성**
 
 ```python
-# tests/test_weekly_report.py (append)
+# tests/test_weekly_report.py (추가)
 def test_parse_live_trades_extracts_entries(tmp_path):
     """봇 로그에서 진입/청산 패턴을 파싱하여 트레이드 리스트를 반환."""
     from scripts.weekly_report import parse_live_trades
@@ -218,14 +218,14 @@ def test_parse_live_trades_empty_log(tmp_path):
     assert trades == []
 ```
 
-**Step 2: Run test to verify it fails**
+**Step 2: 테스트 실행하여 실패 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py::test_parse_live_trades_extracts_entries -v`
 Expected: FAIL — `ImportError: cannot import name 'parse_live_trades'`
 
-**Step 3: Write implementation**
+**Step 3: 구현 작성**
 
-Append to `scripts/weekly_report.py`:
+`scripts/weekly_report.py`에 추가:
 
 ```python
 import re
@@ -289,30 +289,30 @@ def parse_live_trades(log_path: str, days: int = 7) -> list[dict]:
     return closed_trades
 ```
 
-**Step 4: Run tests to verify they pass**
+**Step 4: 테스트 실행하여 통과 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -v`
 Expected: 4 PASS
 
-**Step 5: Commit**
+**Step 5: 커밋**
 
 ```bash
 git add scripts/weekly_report.py tests/test_weekly_report.py
-git commit -m "feat(weekly-report): add live trade log parser"
+git commit -m "feat(weekly-report): 실전 트레이드 로그 파서 추가"
 ```
 
 ---
 
-### Task 3: Add trend tracking (read previous reports)
+### Task 3: 추이 추적 (이전 리포트 읽기) 추가
 
 **Files:**
 - Modify: `scripts/weekly_report.py`
 - Test: `tests/test_weekly_report.py`
 
-**Step 1: Write the failing test**
+**Step 1: 실패 테스트 작성**
 
 ```python
-# tests/test_weekly_report.py (append)
+# tests/test_weekly_report.py (추가)
 def test_load_trend_reads_previous_reports(tmp_path):
     """이전 주간 리포트를 읽어 PF/승률/MDD 추이를 반환."""
     from scripts.weekly_report import load_trend
@@ -349,14 +349,14 @@ def test_load_trend_empty_dir(tmp_path):
     assert trend["pf_declining_3w"] is False
 ```
 
-**Step 2: Run test to verify it fails**
+**Step 2: 테스트 실행하여 실패 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py::test_load_trend_reads_previous_reports -v`
 Expected: FAIL
 
-**Step 3: Write implementation**
+**Step 3: 구현 작성**
 
-Append to `scripts/weekly_report.py`:
+`scripts/weekly_report.py`에 추가:
 
 ```python
 WEEKLY_DIR = Path("results/weekly")
@@ -396,30 +396,30 @@ def load_trend(report_dir: str, weeks: int = 4) -> dict:
     }
 ```
 
-**Step 4: Run tests to verify they pass**
+**Step 4: 테스트 실행하여 통과 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -v`
 Expected: 6 PASS
 
-**Step 5: Commit**
+**Step 5: 커밋**
 
 ```bash
 git add scripts/weekly_report.py tests/test_weekly_report.py
-git commit -m "feat(weekly-report): add trend tracking from previous reports"
+git commit -m "feat(weekly-report): 이전 리포트 추이 추적 추가"
 ```
 
 ---
 
-### Task 4: Add ML re-trigger check + degradation sweep
+### Task 4: ML 재트리거 체크 + 성능 저하 스윕 추가
 
 **Files:**
 - Modify: `scripts/weekly_report.py`
 - Test: `tests/test_weekly_report.py`
 
-**Step 1: Write the failing tests**
+**Step 1: 실패 테스트 작성**
 
 ```python
-# tests/test_weekly_report.py (append)
+# tests/test_weekly_report.py (추가)
 def test_check_ml_trigger_all_met():
     """3개 조건 모두 충족 시 recommend=True."""
     from scripts.weekly_report import check_ml_trigger
@@ -473,14 +473,14 @@ def test_run_degradation_sweep_called_when_pf_low():
     assert alternatives[0]["summary"]["profit_factor"] >= alternatives[1]["summary"]["profit_factor"]
 ```
 
-**Step 2: Run tests to verify they fail**
+**Step 2: 테스트 실행하여 실패 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -k "ml_trigger or degradation" -v`
 Expected: FAIL
 
-**Step 3: Write implementation**
+**Step 3: 구현 작성**
 
-Append to `scripts/weekly_report.py`:
+`scripts/weekly_report.py`에 추가:
 
 ```python
 from scripts.strategy_sweep import (
@@ -538,30 +538,30 @@ def run_degradation_sweep(
     return results[:top_n]
 ```
 
-**Step 4: Run tests to verify they pass**
+**Step 4: 테스트 실행하여 통과 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -v`
 Expected: 9 PASS
 
-**Step 5: Commit**
+**Step 5: 커밋**
 
 ```bash
 git add scripts/weekly_report.py tests/test_weekly_report.py
-git commit -m "feat(weekly-report): add ML trigger check and degradation sweep"
+git commit -m "feat(weekly-report): ML 트리거 체크 및 성능 저하 스윕 추가"
 ```
 
 ---
 
-### Task 5: Add Discord report formatting + sending
+### Task 5: Discord 리포트 포맷팅 + 전송 추가
 
 **Files:**
 - Modify: `scripts/weekly_report.py`
 - Test: `tests/test_weekly_report.py`
 
-**Step 1: Write the failing test**
+**Step 1: 실패 테스트 작성**
 
 ```python
-# tests/test_weekly_report.py (append)
+# tests/test_weekly_report.py (추가)
 def test_format_report_normal():
     """정상 상태(PF >= 1.0) 리포트 포맷."""
     from scripts.weekly_report import format_report
@@ -621,7 +621,7 @@ def test_format_report_degraded():
     text = format_report(report_data)
     assert "0.87" in text
     assert "ML" in text
-    assert "1.15" in text  # sweep alternative
+    assert "1.15" in text  # 스윕 대안
 
 
 def test_send_report_uses_notifier():
@@ -634,14 +634,14 @@ def test_send_report_uses_notifier():
         instance._send.assert_called_once_with("test report content")
 ```
 
-**Step 2: Run tests to verify they fail**
+**Step 2: 테스트 실행하여 실패 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -k "format_report or send_report" -v`
 Expected: FAIL
 
-**Step 3: Write implementation**
+**Step 3: 구현 작성**
 
-Append to `scripts/weekly_report.py`:
+`scripts/weekly_report.py`에 추가:
 
 ```python
 import os
@@ -657,10 +657,10 @@ def format_report(data: dict) -> str:
 
     status = ""
     if pf < 1.0:
-        status = "  \U0001F6A8 손실 구간"
+        status = "  🚨 손실 구간"
 
     lines = [
-        f"\U0001F4CA 주간 전략 리포트 ({d})",
+        f"📊 주간 전략 리포트 ({d})",
         "",
         f"[현재 성능 — Walk-Forward 백테스트]",
         f"  합산 PF: {pf_str} | 승률: {bt['win_rate']:.0f}% | MDD: {bt['max_drawdown_pct']:.0f}%{status}",
@@ -689,7 +689,7 @@ def format_report(data: dict) -> str:
     trend = data["trend"]
     if trend["pf"]:
         pf_trend = " → ".join(f"{v:.2f}" for v in trend["pf"])
-        warn = "  \u26A0 하락 추세" if trend["pf_declining_3w"] else ""
+        warn = "  ⚠ 하락 추세" if trend["pf_declining_3w"] else ""
         lines += ["", f"[추이 (최근 {len(trend['pf'])}주)]", f"  PF: {pf_trend}{warn}"]
         if trend["win_rate"]:
             wr_trend = " → ".join(f"{v:.0f}%" for v in trend["win_rate"])
@@ -709,7 +709,7 @@ def format_report(data: dict) -> str:
         f"  {'✅' if cond['pf_declining_3w'] else '☐'} PF 3주 연속 하락: {'예 ⚠' if cond['pf_declining_3w'] else '아니오'}",
     ]
     if ml["recommend"]:
-        lines.append(f"  → \U0001F514 ML 재학습 권장! ({ml['met_count']}/3 충족)")
+        lines.append(f"  → 🔔 ML 재학습 권장! ({ml['met_count']}/3 충족)")
     else:
         lines.append(f"  → ML 재도전 시점: 아직 아님 ({ml['met_count']}/3 충족)")
 
@@ -725,7 +725,7 @@ def format_report(data: dict) -> str:
             diff = apf - pf
             lines.append(f"  대안 {i+1}: {_param_str(alt['params'])} → PF {apf_str} ({diff:+.2f})")
         lines.append("")
-        lines.append("  \u26A0 자동 적용되지 않음. 검토 후 승인 필요.")
+        lines.append("  ⚠ 자동 적용되지 않음. 검토 후 승인 필요.")
     elif pf >= 1.0:
         lines += ["", "[파라미터 스윕]", "  현재 파라미터가 최적 — 스윕 불필요"]
 
@@ -748,30 +748,30 @@ def send_report(content: str, webhook_url: str | None = None) -> None:
     logger.info("Discord 리포트 전송 완료")
 ```
 
-**Step 4: Run tests to verify they pass**
+**Step 4: 테스트 실행하여 통과 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -v`
 Expected: 12 PASS
 
-**Step 5: Commit**
+**Step 5: 커밋**
 
 ```bash
 git add scripts/weekly_report.py tests/test_weekly_report.py
-git commit -m "feat(weekly-report): add Discord report formatting and sending"
+git commit -m "feat(weekly-report): Discord 리포트 포맷팅 및 전송 추가"
 ```
 
 ---
 
-### Task 6: Add main orchestration + CLI + JSON save
+### Task 6: 메인 오케스트레이션 + CLI + JSON 저장 추가
 
 **Files:**
 - Modify: `scripts/weekly_report.py`
 - Test: `tests/test_weekly_report.py`
 
-**Step 1: Write the failing test**
+**Step 1: 실패 테스트 작성**
 
 ```python
-# tests/test_weekly_report.py (append)
+# tests/test_weekly_report.py (추가)
 def test_generate_report_orchestration(tmp_path):
     """generate_report가 모든 단계를 조합하여 리포트 dict를 반환."""
     from scripts.weekly_report import generate_report
@@ -819,14 +819,14 @@ def test_save_report_creates_json(tmp_path):
     assert loaded["date"] == "2026-03-07"
 ```
 
-**Step 2: Run tests to verify they fail**
+**Step 2: 테스트 실행하여 실패 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -k "generate_report or save_report" -v`
 Expected: FAIL
 
-**Step 3: Write implementation**
+**Step 3: 구현 작성**
 
-Append to `scripts/weekly_report.py`:
+`scripts/weekly_report.py`에 추가:
 
 ```python
 import numpy as np
@@ -984,31 +984,31 @@ if __name__ == "__main__":
     main()
 ```
 
-**Step 4: Run tests to verify they pass**
+**Step 4: 테스트 실행하여 통과 확인**
 
 Run: `source .venv/bin/activate && pytest tests/test_weekly_report.py -v`
 Expected: 14 PASS
 
-**Step 5: Run existing test suite to verify no regressions**
+**Step 5: 기존 테스트 스위트 실행하여 회귀 없음 확인**
 
 Run: `source .venv/bin/activate && bash scripts/run_tests.sh`
-Expected: 121+ passed (existing) + 14 new = 135+ passed
+Expected: 121+ 기존 통과 + 14 신규 = 135+ 통과
 
-**Step 6: Commit**
+**Step 6: 커밋**
 
 ```bash
 git add scripts/weekly_report.py tests/test_weekly_report.py
-git commit -m "feat(weekly-report): add main orchestration, CLI, JSON save"
+git commit -m "feat(weekly-report): 메인 오케스트레이션, CLI, JSON 저장 추가"
 ```
 
 ---
 
-### Task 7: Manual smoke test + crontab guide
+### Task 7: 수동 스모크 테스트 + 크론탭 가이드
 
 **Files:**
-- No new files
+- 신규 파일 없음
 
-**Step 1: Dry run (skip fetch, skip Discord)**
+**Step 1: 드라이 런 (데이터 수집 스킵, Discord 스킵)**
 
 Run:
 ```bash
@@ -1017,19 +1017,19 @@ source .venv/bin/activate && python scripts/weekly_report.py --skip-fetch --date
 
 Expected: 리포트가 터미널에 출력되고 `results/weekly/report_2026-03-07.json` 저장됨.
 
-**Step 2: Verify saved JSON**
+**Step 2: 저장된 JSON 확인**
 
 Run: `cat results/weekly/report_2026-03-07.json | python -m json.tool | head -30`
-Expected: valid JSON with date, backtest, live_trades, trend, ml_trigger keys
+Expected: date, backtest, live_trades, trend, ml_trigger 키가 포함된 유효한 JSON
 
-**Step 3: Commit final state**
+**Step 3: 최종 상태 커밋**
 
 ```bash
 git add results/weekly/.gitkeep
-git commit -m "chore: add results/weekly directory"
+git commit -m "chore: results/weekly 디렉토리 추가"
 ```
 
-**Step 4: Document crontab setup**
+**Step 4: 크론탭 설정 문서화**
 
 프로덕션 서버에서:
 ```bash
@@ -1041,31 +1041,31 @@ crontab -e
 
 ---
 
-### Task 8: Update CLAUDE.md plan history
+### Task 8: CLAUDE.md 플랜 히스토리 업데이트
 
 **Files:**
 - Modify: `CLAUDE.md`
 
-**Step 1: Add plan entry to history table**
+**Step 1: 히스토리 테이블에 플랜 항목 추가**
 
-Add to the plan history table:
+플랜 히스토리 테이블에 추가:
 ```
 | 2026-03-07 | `weekly-report` (plan) | Completed |
 ```
 
-**Step 2: Add weekly report commands to Common Commands section**
+**Step 2: Common Commands 섹션에 주간 리포트 명령어 추가**
 
 ```bash
-# Weekly strategy report (manual)
+# 주간 전략 리포트 (수동)
 python scripts/weekly_report.py --skip-fetch
 
-# Weekly report with data refresh
+# 주간 리포트 (데이터 새로고침 포함)
 python scripts/weekly_report.py
 ```
 
-**Step 3: Commit**
+**Step 3: 커밋**
 
 ```bash
 git add CLAUDE.md
-git commit -m "docs: add weekly-report to plan history and commands"
+git commit -m "docs: 주간 리포트를 플랜 히스토리 및 명령어에 추가"
 ```

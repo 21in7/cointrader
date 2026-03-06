@@ -47,7 +47,7 @@ flowchart TD
     subgraph 실시간봇["실시간 봇 (bot.py — asyncio)"]
         DS["data_stream.py<br/>MultiSymbolStream (심볼별)<br/>캔들 버퍼 (deque 200개)"]
         IND["indicators.py<br/>기술 지표 계산<br/>RSI·MACD·BB·EMA·StochRSI·ATR·ADX"]
-        MF["ml_features.py<br/>23개 피처 추출<br/>(XRP 13 + BTC/ETH 8 + OI/FR 2)"]
+        MF["ml_features.py<br/>26개 피처 추출<br/>(XRP 13 + BTC/ETH 8 + OI/FR 2 + OI파생 2 + ADX 1)"]
         ML["ml_filter.py<br/>MLFilter<br/>ONNX 우선 / LightGBM 폴백<br/>확률 ≥ 0.60 시 진입 허용"]
         RM["risk_manager.py<br/>RiskManager (공유 싱글턴)<br/>일일 손실 5% 한도<br/>동적 증거금 비율<br/>동일 방향 제한"]
         EX["exchange.py<br/>BinanceFuturesClient<br/>주문·레버리지·잔고 API"]
@@ -183,9 +183,10 @@ flowchart TD
   EMA 정배열 (9 > 21 > 50)           → +1
   StochRSI K < 20 and K > D         → +1
 
-진입 조건: 점수 ≥ 3 AND (거래량 급증 OR 점수 ≥ 4)
-SL = 진입가 - ATR × 1.5
-TP = 진입가 + ATR × 3.0  (리스크:리워드 = 1:2)
+진입 조건: 점수 ≥ SIGNAL_THRESHOLD(기본 3) AND (거래량 ≥ 20MA × VOL_MULTIPLIER(기본 2.5) OR 점수 ≥ SIGNAL_THRESHOLD + 1)
+SL = 진입가 - ATR × ATR_SL_MULT (기본 2.0)
+TP = 진입가 + ATR × ATR_TP_MULT (기본 2.0)
+※ SL/TP/신호임계값/ADX/거래량배수 모두 환경변수로 설정 가능
 ```
 
 숏 신호는 롱의 대칭 조건으로 계산됩니다.
@@ -206,7 +207,7 @@ ONNX (MLX 신경망)  →  LightGBM  →  폴백(항상 허용)
 
 모델 파일이 없으면 모든 신호를 허용합니다. 봇 재시작 없이 모델 파일을 교체하면 다음 캔들 마감 시 자동으로 핫리로드됩니다(`mtime` 감지).
 
-**23개 ML 피처:**
+**26개 ML 피처:**
 
 ```
 XRP 기술 지표 (13개):
@@ -222,6 +223,13 @@ BTC/ETH 상관관계 (8개):
 시장 미시구조 (2개):
   oi_change    ← 이전 캔들 대비 미결제약정 변화율
   funding_rate ← 현재 펀딩비
+
+OI 파생 피처 (2개):
+  oi_change_ma5    ← OI 변화율 5캔들 이동평균 (스마트머니 추세)
+  oi_price_spread  ← OI 변화율 - 가격 변화율 (OI-가격 괴리도)
+
+추세 강도 (1개):
+  adx              ← ADX 값 (ML 모델이 횡보/추세 판단에 활용)
 ```
 
 `oi_change`와 `funding_rate`는 캔들 마감마다 Binance REST API로 실시간 조회합니다. API 실패 시 `0.0`으로 폴백하여 봇이 멈추지 않습니다.
@@ -230,8 +238,12 @@ BTC/ETH 상관관계 (8개):
 
 ```python
 proba = model.predict_proba(features)[0][1]  # 성공 확률
-return proba >= 0.60  # 임계값 60%
+return proba >= 0.55  # 임계값 55% (ML_THRESHOLD 환경변수)
 ```
+
+**ML 필터 현황 — 현재 비활성화 상태:**
+
+프로덕션에서 `NO_ML_FILTER=true`로 ML 필터를 비활성화하고 있습니다. Walk-Forward 검증 결과 각 폴드 학습 세트에 유효 신호가 약 27건으로, LightGBM이 의미 있는 패턴을 학습하기엔 표본이 절대적으로 부족합니다. 모든 입력에 동일한 확률(~0.55)을 출력하여 필터링 효과가 없었습니다. 전략 파라미터 스윕에서 ADX 필터(≥25) + 거래량 배수(2.5) 조합만으로 PF 1.57~2.39를 달성하여, 충분한 트레이드 데이터가 축적될 때까지 ML 없이 운영합니다.
 
 ---
 
@@ -444,14 +456,33 @@ if onnx_changed or lgbm_changed:
 
 매 캔들 마감(15분)마다 모델 파일의 `mtime`을 확인합니다. 변경이 감지되면 즉시 리로드합니다.
 
-### 3.3 레이블 생성 방식
+### 3.3 주간 전략 모니터링
+
+`scripts/weekly_report.py`가 매주 자동으로 전략 성능을 측정하고 Discord로 리포트를 전송합니다.
+
+```
+[매주 일요일 크론탭]
+
+[1/6] 데이터 수집 (fetch_history.py × 3심볼, 최근 35일 Upsert)
+[2/6] Walk-Forward 백테스트 (심볼별 → 합산 PF/승률/MDD)
+[3/6] 실전 봇 로그 파싱 (이번 주 진입/청산 기록)
+[4/6] 추이 분석 (이전 results/weekly/*.json에서 PF/승률/MDD 추이)
+[5/6] ML 재도전 체크 (누적 트레이드 ≥ 150, PF < 1.0, PF 3주 하락 → 2/3 충족 시 권장)
+[6/6] PF < 1.0이면 파라미터 스윕 실행 → 상위 3개 대안 제시
+
+→ Discord 알림 + results/weekly/report_YYYY-MM-DD.json 저장
+```
+
+**전략 파라미터 스윕**: 성능 저하 감지 시 324개 파라미터 조합(SL/TP/ADX/신호임계값/거래량배수)을 자동 탐색하여 현재보다 높은 PF의 대안을 제시합니다. 자동 적용되지 않으며, 사람이 검토 후 승인해야 합니다.
+
+### 3.4 레이블 생성 방식
 
 학습 데이터의 레이블은 **미래 6시간(24캔들) 룩어헤드**로 생성됩니다.
 
 ```
 신호 발생 시점 기준:
-  SL = 진입가 - ATR × 1.5
-  TP = 진입가 + ATR × 3.0
+  SL = 진입가 - ATR × ATR_SL_MULT (기본 2.0)
+  TP = 진입가 + ATR × ATR_TP_MULT (기본 2.0)
 
 향후 24캔들 동안:
   - 저가가 SL에 먼저 닿으면 → label = 0 (실패)
@@ -496,7 +527,7 @@ sequenceDiagram
 
     alt 신호 = LONG 또는 SHORT, 포지션 없음
         BOT->>MF: build_features(df, signal, btc_df, eth_df, oi_change, funding_rate)
-        MF-->>BOT: features (23개 피처 Series)
+        MF-->>BOT: features (26개 피처 Series)
         BOT->>ML: should_enter(features)
         ML-->>BOT: proba=0.73 ≥ 0.60 → True
 
@@ -568,7 +599,7 @@ sequenceDiagram
 
 ### 5.1 테스트 파일 구성
 
-`tests/` 폴더에 14개 테스트 파일, 총 **99개의 테스트 케이스**가 작성되어 있습니다.
+`tests/` 폴더에 15개 테스트 파일, 총 **135개의 테스트 케이스**가 작성되어 있습니다.
 
 ```bash
 pytest tests/ -v          # 전체 실행
@@ -581,7 +612,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 |------------|----------|:------------:|--------------|
 | `test_bot.py` | `src/bot.py` | 11 | 반대 시그널 재진입 흐름, ML 차단 시 재진입 스킵, OI/펀딩비 피처 전달, OI 변화율 계산 |
 | `test_indicators.py` | `src/indicators.py` | 7 | RSI 범위(0~100), MACD 컬럼 존재, 볼린저 밴드 상하단 대소관계, 신호 반환값 유효성, ADX 컬럼 존재, ADX<25 횡보장 차단, ADX NaN 폴스루 |
-| `test_ml_features.py` | `src/ml_features.py` | 11 | 23개 피처 수, BTC/ETH 포함 시 피처 수, RS 분모 0 처리, NaN 없음, side 인코딩, OI/펀딩비 파라미터 반영 |
+| `test_ml_features.py` | `src/ml_features.py` | 11 | 26개 피처 수, BTC/ETH 포함 시 피처 수, RS 분모 0 처리, NaN 없음, side 인코딩, OI/펀딩비 파라미터 반영 |
 | `test_ml_filter.py` | `src/ml_filter.py` | 5 | 모델 없을 때 폴백 허용, 임계값 이상/미만 판단, 핫리로드 후 상태 변화 |
 | `test_risk_manager.py` | `src/risk_manager.py` | 13 | 일일 손실 한도 초과 차단, 최대 포지션 수 제한, 동일 방향 제한, 심볼 중복 차단, 비동기 포지션 등록/해제, 동적 증거금 비율 상한/하한 클램핑 |
 | `test_exchange.py` | `src/exchange.py` | 8 | 수량 계산(기본/최소명목금액/잔고0), OI·펀딩비 조회 정상/오류 시 반환값 |
@@ -591,6 +622,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `test_mlx_filter.py` | `src/mlx_filter.py` | 5 | GPU 디바이스 확인, 학습 전 예측 형태, 학습 후 유효 확률, NaN 피처 처리, 저장/로드 후 동일 예측 |
 | `test_fetch_history.py` | `scripts/fetch_history.py` | 5 | OI=0 구간 Upsert, 신규 행 추가, 기존 비0값 보존, 파일 없을 때 신규 반환, 타임스탬프 오름차순 정렬 |
 | `test_config.py` | `src/config.py` | 6 | 환경변수 로드, 동적 증거금 파라미터 로드, `symbols` 리스트, `correlation_symbols`, `max_same_direction`, SYMBOL→symbols 폴백 |
+| `test_weekly_report.py` | `scripts/weekly_report.py` | 14 | 데이터 수집 subprocess 호출, WF 백테스트 실행, 로그 파싱(진입/청산), 추이 로드(PF 하락 감지), ML 트리거 체크, 성능 저하 스윕, Discord 포맷/전송, JSON 저장 |
 
 > `test_mlx_filter.py`는 Apple Silicon(`mlx` 패키지)이 없는 환경에서 자동 스킵됩니다.
 
@@ -603,7 +635,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | 기술 지표 계산 (RSI/MACD/BB/EMA/StochRSI/ADX) | ✅ | ✅ | `test_indicators` + `test_ml_features` + `test_dataset_builder` |
 | 신호 생성 (가중치 합산) | ✅ | ✅ | `test_indicators` + `test_dataset_builder` |
 | ADX 횡보장 필터 (ADX < 25 차단) | ✅ | ✅ | `test_indicators` + `test_dataset_builder` (`_calc_signals` 실제 호출) |
-| ML 피처 추출 (23개) | ✅ | ✅ | `test_ml_features` + `test_dataset_builder` (`_calc_features_vectorized` 실제 호출) |
+| ML 피처 추출 (26개) | ✅ | ✅ | `test_ml_features` + `test_dataset_builder` (`_calc_features_vectorized` 실제 호출) |
 | ML 필터 추론 (임계값 판단) | ✅ | — | `test_ml_filter` |
 | MLX 신경망 학습/저장/로드 | ✅ | — | `test_mlx_filter` (Apple Silicon 전용) |
 | 레이블 생성 (SL/TP 룩어헤드) | ✅ | ✅ | `test_label_builder` + `test_dataset_builder` (전체 파이프라인 실제 호출) |
@@ -619,6 +651,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | OI 변화율 계산 (API 실패 폴백) | ✅ | ✅ | `test_bot` (`process_candle` → OI 조회 → `_calc_oi_change` 흐름) |
 | 캔들 버퍼 관리 및 프리로드 | ✅ | — | `test_data_stream` |
 | Parquet Upsert (OI=0 보충) | ✅ | — | `test_fetch_history` |
+| 주간 리포트 (백테스트+로그+추이+스윕) | ✅ | ✅ | `test_weekly_report` (14개 테스트: 데이터 수집, 백테스트, 로그 파싱, 추이, ML 트리거, 스윕, 포맷, 전송, JSON 저장) |
 | User Data Stream TP/SL 감지 | ❌ | — | 미작성 (실제 WebSocket 의존) |
 | Discord 알림 전송 | ❌ | — | 미작성 (외부 웹훅 의존) |
 | CI/CD 파이프라인 | ❌ | — | Jenkins 환경 의존 |
@@ -650,7 +683,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `src/config.py` | — | 환경변수 기반 설정 (`symbols` 리스트, `correlation_symbols`) |
 | `src/data_stream.py` | Data | Combined WebSocket 캔들 수신·버퍼 관리 |
 | `src/indicators.py` | Signal | 기술 지표 계산 및 복합 신호 생성 |
-| `src/ml_features.py` | ML Filter | 23개 ML 피처 추출 |
+| `src/ml_features.py` | ML Filter | 26개 ML 피처 추출 |
 | `src/ml_filter.py` | ML Filter | ONNX/LightGBM 모델 로드·추론·핫리로드 |
 | `src/mlx_filter.py` | ML Filter | Apple Silicon GPU 학습 + ONNX export |
 | `src/exchange.py` | Execution | Binance Futures REST API 클라이언트 (심볼별 독립) |
@@ -666,4 +699,8 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `scripts/tune_hyperparams.py` | MLOps | Optuna 하이퍼파라미터 탐색 (`--symbol` 지원) |
 | `scripts/train_and_deploy.sh` | MLOps | 전체 파이프라인 (`--symbol` / `--all` 지원) |
 | `scripts/deploy_model.sh` | MLOps | 모델 파일 LXC 서버 전송 (`--symbol` 지원) |
+| `scripts/strategy_sweep.py` | MLOps | 전략 파라미터 그리드 스윕 (324개 조합) |
+| `scripts/weekly_report.py` | MLOps | 주간 전략 리포트 (백테스트+로그+추이+스윕+Discord) |
+| `scripts/run_backtest.py` | MLOps | 단일 백테스트 CLI |
+| `src/backtester.py` | MLOps | 백테스트 엔진 (단일 + Walk-Forward) |
 | `models/{symbol}/active_lgbm_params.json` | MLOps | 심볼별 승인된 LightGBM 파라미터 (Active Config) |

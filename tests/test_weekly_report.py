@@ -48,31 +48,54 @@ def test_run_backtest_returns_summary():
     assert result["summary"]["total_trades"] == 27
 
 
-def test_parse_live_trades_extracts_entries(tmp_path):
-    """봇 로그에서 진입/청산 패턴을 파싱하여 트레이드 리스트를 반환."""
-    from scripts.weekly_report import parse_live_trades
+def test_fetch_live_trades_from_api():
+    """대시보드 API에서 청산 트레이드를 가져오는지 확인."""
+    from scripts.weekly_report import fetch_live_trades
 
-    log_content = """2026-03-01 10:00:00.000 | INFO     | src.bot:process_candle:42 - [XRPUSDT] LONG 진입: 가격=2.5000, 수량=100.0, SL=2.4000, TP=2.7000
-2026-03-01 10:15:00.000 | INFO     | src.bot:process_candle:42 - [XRPUSDT] 신호: HOLD | 현재가: 2.5500 USDT
-2026-03-01 12:00:00.000 | INFO     | src.user_data_stream:_handle_order:80 - [XRPUSDT] 청산 감지(TAKE_PROFIT): exit=2.7000, rp=20.0000, commission=0.2160, net_pnl=19.5680
-"""
-    log_file = tmp_path / "bot.log"
-    log_file.write_text(log_content)
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "trades": [
+            {"symbol": "XRPUSDT", "direction": "LONG", "net_pnl": 19.568,
+             "commission": 0.216, "status": "CLOSED"},
+        ],
+        "total": 1,
+    }
+    mock_response.raise_for_status = MagicMock()
 
-    trades = parse_live_trades(str(log_file), days=7)
+    with patch("scripts.weekly_report.httpx.get", return_value=mock_response):
+        trades = fetch_live_trades("http://test:8000")
+
     assert len(trades) == 1
     assert trades[0]["symbol"] == "XRPUSDT"
-    assert trades[0]["side"] == "LONG"
     assert trades[0]["net_pnl"] == pytest.approx(19.568)
-    assert trades[0]["close_reason"] == "TAKE_PROFIT"
 
 
-def test_parse_live_trades_empty_log(tmp_path):
-    """로그 파일이 없으면 빈 리스트 반환."""
-    from scripts.weekly_report import parse_live_trades
+def test_fetch_live_trades_api_failure():
+    """API 실패 시 빈 리스트 반환."""
+    from scripts.weekly_report import fetch_live_trades
 
-    trades = parse_live_trades(str(tmp_path / "nonexistent.log"), days=7)
+    with patch("scripts.weekly_report.httpx.get", side_effect=Exception("connection refused")):
+        trades = fetch_live_trades("http://unreachable:8000")
+
     assert trades == []
+
+
+def test_fetch_live_stats_from_api():
+    """대시보드 API에서 전체 통계를 가져오는지 확인."""
+    from scripts.weekly_report import fetch_live_stats
+
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "total_trades": 15, "wins": 9, "losses": 6,
+        "total_pnl": 42.5, "total_fees": 3.2,
+    }
+    mock_response.raise_for_status = MagicMock()
+
+    with patch("scripts.weekly_report.httpx.get", return_value=mock_response):
+        stats = fetch_live_stats("http://test:8000")
+
+    assert stats["total_trades"] == 15
+    assert stats["wins"] == 9
 
 
 import json
@@ -252,16 +275,16 @@ def test_generate_report_orchestration(tmp_path):
     }
 
     with patch("scripts.weekly_report.run_backtest", return_value=mock_bt_result):
-        with patch("scripts.weekly_report.parse_live_trades", return_value=[]):
-            with patch("scripts.weekly_report.load_trend", return_value={
-                "pf": [1.31], "win_rate": [48.0], "mdd": [9.0], "pf_declining_3w": False,
-            }):
-                report = generate_report(
-                    symbols=["XRPUSDT"],
-                    report_dir=str(tmp_path),
-                    log_path=str(tmp_path / "bot.log"),
-                    report_date=date(2026, 3, 7),
-                )
+        with patch("scripts.weekly_report.fetch_live_stats", return_value={"total_trades": 0, "wins": 0, "total_pnl": 0}):
+            with patch("scripts.weekly_report.fetch_live_trades", return_value=[]):
+                with patch("scripts.weekly_report.load_trend", return_value={
+                    "pf": [1.31], "win_rate": [48.0], "mdd": [9.0], "pf_declining_3w": False,
+                }):
+                    report = generate_report(
+                        symbols=["XRPUSDT"],
+                        report_dir=str(tmp_path),
+                        report_date=date(2026, 3, 7),
+                    )
 
     assert report["date"] == "2026-03-07"
     # PF는 avg_win/avg_loss에서 재계산됨 (GP=40*20=800, GL=48*10=480 → 1.67)

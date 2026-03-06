@@ -1,0 +1,92 @@
+{
+  "date": "2026-03-07",
+  "backtest": {
+    "summary": {
+      "profit_factor": 1.24,
+      "win_rate": 61.4,
+      "max_drawdown_pct": 17.1,
+      "total_trades": 88,
+      "total_pnl": 379.4
+    },
+    "per_symbol": {
+      "XRPUSDT": {
+        "total_trades": 27,
+        "total_pnl": 217.0703,
+        "return_pct": 21.71,
+        "win_rate": 66.67,
+        "avg_win": 33.2223,
+        "avg_loss": -42.3256,
+        "profit_factor": 1.57,
+        "max_drawdown_pct": 11.99,
+        "sharpe_ratio": 33.32,
+        "total_fees": 102.7825,
+        "close_reasons": {
+          "STOP_LOSS": 9,
+          "TAKE_PROFIT": 18
+        }
+      },
+      "TRXUSDT": {
+        "total_trades": 25,
+        "total_pnl": 72.3058,
+        "return_pct": 7.23,
+        "win_rate": 64.0,
+        "avg_win": 20.3593,
+        "avg_loss": -28.1603,
+        "profit_factor": 1.29,
+        "max_drawdown_pct": 7.66,
+        "sharpe_ratio": 15.17,
+        "total_fees": 97.1591,
+        "close_reasons": {
+          "STOP_LOSS": 9,
+          "TAKE_PROFIT": 16
+        }
+      },
+      "DOGEUSDT": {
+        "total_trades": 36,
+        "total_pnl": 90.019,
+        "return_pct": 9.0,
+        "win_rate": 55.56,
+        "avg_win": 52.4749,
+        "avg_loss": -59.9675,
+        "profit_factor": 1.09,
+        "max_drawdown_pct": 17.14,
+        "sharpe_ratio": 6.64,
+        "total_fees": 139.8283,
+        "close_reasons": {
+          "STOP_LOSS": 15,
+          "TAKE_PROFIT": 20,
+          "REVERSE_SIGNAL": 1
+        }
+      }
+    }
+  },
+  "live_trades": {
+    "count": 0,
+    "net_pnl": 0,
+    "win_rate": 0
+  },
+  "trend": {
+    "pf": [
+      1.24
+    ],
+    "win_rate": [
+      61.4
+    ],
+    "mdd": [
+      17.1
+    ],
+    "pf_declining_3w": false
+  },
+  "ml_trigger": {
+    "conditions": {
+      "cumulative_trades_enough": false,
+      "pf_below_1": false,
+      "pf_declining_3w": false
+    },
+    "met_count": 0,
+    "recommend": false,
+    "cumulative_trades": 88,
+    "threshold": 150
+  },
+  "sweep": null
+}

@@ -14,13 +14,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import argparse
 import json
 import os
-import re
 import subprocess
 from datetime import date, timedelta
 
+import httpx
 import numpy as np
-
+from dotenv import load_dotenv
 from loguru import logger
+
+load_dotenv()
 
 from src.backtester import WalkForwardBacktester, WalkForwardConfig
 from src.notifier import DiscordNotifier
@@ -76,55 +78,30 @@ def run_backtest(
     return wf.run()
 
 
-# ── 로그 파싱 패턴 ────────────────────────────────────────────────
-_RE_ENTRY = re.compile(
-    r"\[(\w+)\]\s+(LONG|SHORT)\s+진입:\s+가격=([\d.]+),\s+수량=([\d.]+),\s+SL=([\d.]+),\s+TP=([\d.]+)"
-)
-_RE_CLOSE = re.compile(
-    r"\[(\w+)\]\s+청산 감지\((\w+)\):\s+exit=([\d.]+),\s+rp=([\d.-]+),\s+commission=([\d.]+),\s+net_pnl=([\d.-]+)"
-)
-_RE_TIMESTAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})\s")
+# ── 대시보드 API에서 실전 트레이드 가져오기 ──────────────────────────
+DASHBOARD_API_URL = os.getenv("DASHBOARD_API_URL", "http://10.1.10.24:8000")
 
 
-def parse_live_trades(log_path: str, days: int = 7) -> list[dict]:
-    """봇 로그에서 최근 N일간의 진입/청산 기록을 파싱한다."""
-    path = Path(log_path)
-    if not path.exists():
+def fetch_live_trades(api_url: str = DASHBOARD_API_URL, limit: int = 500) -> list[dict]:
+    """운영 LXC 대시보드 API에서 청산된 트레이드 내역을 가져온다."""
+    try:
+        resp = httpx.get(f"{api_url}/api/trades", params={"limit": limit}, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("trades", [])
+    except Exception as e:
+        logger.warning(f"대시보드 API 트레이드 조회 실패: {e}")
         return []
 
-    cutoff = (date.today() - timedelta(days=days)).isoformat()
-    open_trades: dict[str, dict] = {}
-    closed_trades: list[dict] = []
 
-    for line in path.read_text().splitlines():
-        m_ts = _RE_TIMESTAMP.match(line)
-        if m_ts and m_ts.group(1) < cutoff:
-            continue
-
-        m = _RE_ENTRY.search(line)
-        if m:
-            sym, side, price, qty, sl, tp = m.groups()
-            open_trades[sym] = {
-                "symbol": sym, "side": side,
-                "entry_price": float(price), "quantity": float(qty),
-                "sl": float(sl), "tp": float(tp),
-                "entry_time": m_ts.group(1) if m_ts else "",
-            }
-            continue
-
-        m = _RE_CLOSE.search(line)
-        if m:
-            sym, reason, exit_price, rp, commission, net_pnl = m.groups()
-            trade = open_trades.pop(sym, {"symbol": sym, "side": "UNKNOWN"})
-            trade.update({
-                "close_reason": reason, "exit_price": float(exit_price),
-                "expected_pnl": float(rp), "commission": float(commission),
-                "net_pnl": float(net_pnl),
-                "exit_time": m_ts.group(1) if m_ts else "",
-            })
-            closed_trades.append(trade)
-
-    return closed_trades
+def fetch_live_stats(api_url: str = DASHBOARD_API_URL) -> dict:
+    """운영 LXC 대시보드 API에서 전체 통계를 가져온다."""
+    try:
+        resp = httpx.get(f"{api_url}/api/stats", timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        logger.warning(f"대시보드 API 통계 조회 실패: {e}")
+        return {}
 
 
 # ── 추이 추적 ────────────────────────────────────────────────────
@@ -373,11 +350,12 @@ def save_report(report: dict, report_dir: str) -> Path:
 def generate_report(
     symbols: list[str],
     report_dir: str = str(WEEKLY_DIR),
-    log_path: str = "logs/bot.log",
     report_date: date | None = None,
+    api_url: str | None = None,
 ) -> dict:
     """전체 주간 리포트를 생성한다."""
     today = report_date or date.today()
+    dashboard_url = api_url or DASHBOARD_API_URL
 
     # 1) Walk-Forward 백테스트 (심볼별)
     logger.info("백테스트 실행 중...")
@@ -416,28 +394,31 @@ def generate_report(
         "total_pnl": round(combined_pnl, 2),
     }
 
-    # 2) 실전 트레이드 파싱
-    logger.info("실전 로그 파싱 중...")
-    live_trades_list = parse_live_trades(log_path, days=7)
-    live_wins = sum(1 for t in live_trades_list if t.get("net_pnl", 0) > 0)
-    live_pnl = sum(t.get("net_pnl", 0) for t in live_trades_list)
+    # 2) 운영 대시보드 API에서 실전 트레이드 조회
+    logger.info(f"대시보드 API에서 실전 트레이드 조회 중... ({dashboard_url})")
+    live_stats = fetch_live_stats(dashboard_url)
+    live_trades_list = fetch_live_trades(dashboard_url)
+
+    live_count = live_stats.get("total_trades", len(live_trades_list))
+    live_wins = live_stats.get("wins", 0)
+    live_pnl = live_stats.get("total_pnl", 0)
     live_summary = {
-        "count": len(live_trades_list),
-        "net_pnl": round(live_pnl, 2),
-        "win_rate": round(live_wins / len(live_trades_list) * 100, 1) if live_trades_list else 0,
+        "count": live_count,
+        "net_pnl": round(float(live_pnl), 2),
+        "win_rate": round(live_wins / live_count * 100, 1) if live_count > 0 else 0,
     }
 
     # 3) 추이 로드
     trend = load_trend(report_dir)
 
-    # 4) 누적 트레이드 수
-    cumulative = combined_trades + len(live_trades_list)
+    # 4) 누적 트레이드 수 (실전 + 이전 리포트)
+    cumulative = live_count
     rdir = Path(report_dir)
     if rdir.exists():
         for rpath in sorted(rdir.glob("report_*.json")):
             try:
                 prev = json.loads(rpath.read_text())
-                cumulative += prev.get("live_trades", {}).get("count", 0)
+                cumulative = max(cumulative, prev.get("live_trades", {}).get("count", 0))
             except (json.JSONDecodeError, KeyError):
                 pass
 

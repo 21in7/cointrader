@@ -12,10 +12,13 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / M
 - **ML 필터 (ONNX 우선 / LightGBM 폴백)**: 기술 지표 신호를 한 번 더 검증하여 오진입 차단. 우선순위: ONNX > LightGBM > 폴백(항상 허용)
 - **모델 핫리로드**: 캔들마다 모델 파일 mtime을 감지해 변경 시 자동 리로드 (봇 재시작 불필요)
 - **멀티심볼 스트림**: XRP/BTC/ETH 3개 심볼을 단일 Combined WebSocket으로 수신, BTC·ETH 상관관계 피처 활용
-- **23개 ML 피처**: XRP 기술 지표 13개 + BTC/ETH 수익률·상대강도 8개 + OI 변화율·펀딩비 2개 (캔들 마감 시 실시간 조회, 실패 시 0으로 폴백)
+- **26개 ML 피처**: XRP 기술 지표 13개 + BTC/ETH 수익률·상대강도 8개 + OI 변화율·펀딩비 2개 + OI 파생 피처 2개(oi_change_ma5, oi_price_spread) + ADX 1개 (캔들 마감 시 실시간 조회, 실패 시 0으로 폴백)
 - **점진적 OI 데이터 축적 (Upsert)**: 바이낸스 OI 히스토리 API는 최근 30일치만 제공. `fetch_history.py` 실행 시 기존 parquet의 `oi_change/funding_rate=0` 구간을 신규 값으로 채워 학습 데이터 품질을 점진적으로 개선
 - **실시간 OI/펀딩비 조회**: 캔들 마감마다 `get_open_interest()` / `get_funding_rate()`를 비동기 병렬 조회하여 ML 피처에 전달. 이전 캔들 대비 OI 변화율로 변환하여 train-serve skew 해소
-- **ATR 기반 손절/익절**: 변동성에 따라 동적으로 SL/TP 계산 (1.5× / 3.0× ATR)
+- **ATR 기반 손절/익절**: 변동성에 따라 동적으로 SL/TP 계산 (기본 2.0× / 2.0× ATR, 환경변수로 설정 가능)
+- **전략 파라미터 스윕**: 324개 파라미터 조합(SL/TP/ADX/신호임계값/거래량배수)을 Walk-Forward 백테스트로 체계적 탐색, 수익 구간 자동 발견
+- **주간 전략 리포트**: 매주 자동으로 백테스트 성능 측정, 실전 로그 파싱, 추이 추적, ML 재학습 시점 판단, 성능 저하 시 대안 파라미터 스윕, Discord 알림
+- **ML 필터 비활성화 모드**: `NO_ML_FILTER=true` 설정 시 ML 모델 로드 없이 기술 지표 신호만으로 운영 (현재 프로덕션 기본값 — 아래 "ML 필터 현황" 참고)
 - **Algo Order API 지원**: 계정 설정에 따라 STOP_MARKET/TAKE_PROFIT_MARKET 주문을 `/fapi/v1/algoOrder` 엔드포인트로 자동 전송 (오류 코드 -4120 대응)
 - **동적 증거금 비율**: 잔고 증가에 따라 선형 감소 (최대 50% → 최소 20%)
 - **반대 시그널 재진입**: 보유 포지션과 반대 신호 발생 시 즉시 청산 후 ML 필터 통과 시 반대 방향 재진입
@@ -56,6 +59,9 @@ cointrader/
 │   ├── train_mlx_model.py     # MLX 신경망 학습 (Apple Silicon GPU)
 │   ├── train_and_deploy.sh    # 전체 파이프라인 (--symbol / --all 지원)
 │   ├── tune_hyperparams.py    # Optuna 하이퍼파라미터 자동 탐색 (--symbol 지원)
+│   ├── strategy_sweep.py      # 전략 파라미터 그리드 스윕 (324개 조합)
+│   ├── weekly_report.py       # 주간 전략 리포트 (백테스트+로그+추이+Discord)
+│   ├── run_backtest.py        # 단일 백테스트 CLI
 │   ├── deploy_model.sh        # 모델 파일 LXC 서버 전송 (--symbol 지원)
 │   └── run_tests.sh           # 전체 테스트 실행
 ├── dashboard/
@@ -69,6 +75,8 @@ cointrader/
 │   ├── xrpusdt/               #   data/xrpusdt/combined_15m.parquet
 │   ├── trxusdt/               #   data/trxusdt/combined_15m.parquet
 │   └── dogeusdt/              #   data/dogeusdt/combined_15m.parquet
+├── results/
+│   └── weekly/                # 주간 리포트 JSON 저장
 ├── logs/                      # 로그 파일
 ├── docs/plans/                # 설계 문서 및 구현 플랜
 ├── tests/                     # 테스트 코드
@@ -225,15 +233,92 @@ MLX로 학습한 모델은 ONNX 포맷으로 export되어 Linux 서버에서 `on
 | Stochastic RSI | < 20 + K>D | > 80 + K<D | 1 |
 | 거래량 | 20MA × 1.5 이상 시 신호 강화 | — | 보조 |
 
-**진입 조건**: 가중치 합계 ≥ 3 + (거래량 급증 또는 가중치 합계 ≥ 4)  
-**손절/익절**: ATR × 1.5 / ATR × 3.0 (리스크:리워드 = 1:2)  
-**ML 필터**: 예측 확률 ≥ 0.60 이어야 최종 진입
+**진입 조건**: 가중치 합계 ≥ `SIGNAL_THRESHOLD`(기본 3) + (거래량 ≥ 20MA × `VOL_MULTIPLIER`(기본 2.5) 또는 가중치 합계 ≥ `SIGNAL_THRESHOLD` + 1)
+**ADX 필터**: ADX < `ADX_THRESHOLD`(기본 25) 시 횡보장으로 판단, 진입 차단
+**손절/익절**: ATR × `ATR_SL_MULT`(기본 2.0) / ATR × `ATR_TP_MULT`(기본 2.0) — 환경변수로 설정 가능
+**ML 필터**: 예측 확률 ≥ 0.55 이어야 최종 진입 (현재 `NO_ML_FILTER=true`로 비활성화 — 아래 참고)
 
 ### 반대 시그널 재진입
 
 보유 포지션과 반대 방향 신호가 발생하면:
 1. 기존 포지션 즉시 청산 (미체결 SL/TP 주문 취소 포함)
 2. ML 필터 통과 시 반대 방향으로 즉시 재진입
+
+### ML 필터 현황 — 왜 현재 ML을 사용하지 않는가
+
+현재 프로덕션 봇은 `NO_ML_FILTER=true`로 ML 필터를 **비활성화**한 상태로 운영 중입니다.
+
+**비활성화 사유:**
+
+1. **학습 데이터 부족**: Walk-Forward 검증(학습 3개월, 테스트 1개월) 시 각 폴드의 학습 세트에서 유효 신호가 약 27건에 불과. LightGBM이 의미 있는 패턴을 학습하기엔 표본 수가 절대적으로 부족.
+2. **예측 무차별**: 학습된 모델이 모든 입력에 대해 거의 동일한 확률(~0.55)을 출력하여 필터링 효과가 사실상 없음. 모든 신호를 차단하거나 모든 신호를 통과시키는 극단적 동작.
+3. **전략 파라미터 스윕 결과**: ADX 필터(≥25)와 거래량 배수(2.5)를 적용한 기본 기술 지표 전략만으로 PF 1.57~2.39를 달성. ML 없이도 수익성 확보 가능.
+
+**ML 재활성화 조건 (주간 리포트에서 자동 체크):**
+
+- 누적 트레이드 ≥ 150건 (충분한 학습 데이터 확보)
+- 현재 PF < 1.0 (기술 지표만으로 수익성 저하)
+- PF 3주 연속 하락 추세
+
+3개 조건 중 2개 이상 충족 시 `scripts/weekly_report.py`가 Discord로 ML 재학습 권장 알림을 전송합니다.
+
+---
+
+## 전략 파라미터 스윕
+
+기술 지표 전략의 최적 파라미터를 Walk-Forward 백테스트로 탐색합니다.
+
+```bash
+# 전체 스윕 (324개 조합, ~30분)
+python scripts/strategy_sweep.py --symbols XRPUSDT --train-months 3 --test-months 1
+
+# 결과 확인
+cat results/sweep_*.json | python -m json.tool | head -50
+```
+
+5개 파라미터 × 3~4개 값 = 324개 조합을 순차 테스트:
+
+| 파라미터 | 값 | 설명 |
+|---------|------|------|
+| `ATR_SL_MULT` | 1.0, 1.5, 2.0 | 손절 ATR 배수 |
+| `ATR_TP_MULT` | 2.0, 3.0, 4.0 | 익절 ATR 배수 |
+| `SIGNAL_THRESHOLD` | 3, 4, 5 | 최소 가중치 점수 |
+| `ADX_THRESHOLD` | 0, 20, 25, 30 | ADX 필터 (0=비활성) |
+| `VOL_MULTIPLIER` | 1.5, 2.0, 2.5 | 거래량 급증 배수 |
+
+> **핵심 발견**: ADX ≥ 25 필터가 가장 영향력 있는 단일 파라미터. 상위 10개 결과 모두 ADX ≥ 25를 사용하며, 횡보장 노이즈 신호를 효과적으로 필터링.
+
+---
+
+## 주간 전략 리포트
+
+매주 자동으로 전략 성능을 측정하고 Discord로 리포트를 전송합니다.
+
+```bash
+# 수동 실행 (데이터 수집 스킵)
+python scripts/weekly_report.py --skip-fetch
+
+# 전체 실행 (데이터 수집 포함)
+python scripts/weekly_report.py
+
+# 특정 날짜 리포트
+python scripts/weekly_report.py --date 2026-03-07
+```
+
+**리포트 내용:**
+- Walk-Forward 백테스트 성능 (심볼별 PF/승률/MDD)
+- 실전 트레이드 로그 파싱 (이번 주 거래 수/순수익/승률)
+- 성능 추이 (최근 4주 PF/승률/MDD 변화)
+- ML 재도전 체크리스트 (3개 조건 자동 판단)
+- PF < 1.0 시 파라미터 스윕 대안 제시
+
+**크론탭 설정 (프로덕션 서버):**
+```bash
+# 매주 일요일 새벽 3시 KST
+0 18 * * 6 cd /app && python scripts/weekly_report.py >> logs/cron.log 2>&1
+```
+
+리포트 결과는 `results/weekly/report_YYYY-MM-DD.json`에 저장됩니다.
 
 ---
 
@@ -321,8 +406,13 @@ pytest tests/ -v
 | `MARGIN_MAX_RATIO` | `0.50` | 최대 증거금 비율 (잔고 대비 50%) |
 | `MARGIN_MIN_RATIO` | `0.20` | 최소 증거금 비율 (잔고 대비 20%) |
 | `MARGIN_DECAY_RATE` | `0.0006` | 잔고 증가 시 증거금 비율 감소 속도 |
-| `NO_ML_FILTER` | — | `true`/`1`/`yes` 설정 시 ML 필터 완전 비활성화 — 모델 로드 없이 모든 신호 허용 |
-| `ML_THRESHOLD` | `0.55` | ML 필터 예측 확률 임계값 — 이 값 이상이어야 진입 허용 (기본값 0.55) |
+| `NO_ML_FILTER` | `true` | `true`/`1`/`yes` 설정 시 ML 필터 완전 비활성화 — 모델 로드 없이 모든 신호 허용 (현재 프로덕션 기본값) |
+| `ML_THRESHOLD` | `0.55` | ML 필터 예측 확률 임계값 — 이 값 이상이어야 진입 허용 |
+| `ATR_SL_MULT` | `2.0` | 손절 ATR 배수 (진입가 ± ATR × 이 값) |
+| `ATR_TP_MULT` | `2.0` | 익절 ATR 배수 (진입가 ± ATR × 이 값) |
+| `SIGNAL_THRESHOLD` | `3` | 진입을 위한 최소 가중치 지표 점수 |
+| `ADX_THRESHOLD` | `25` | ADX 횡보장 필터 (이 값 미만이면 진입 차단, 0=비활성) |
+| `VOL_MULTIPLIER` | `2.5` | 거래량 급증 감지 배수 (20MA × 이 값 이상 시 급증 판정) |
 
 ---
 
