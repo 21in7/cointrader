@@ -1,0 +1,113 @@
+{
+  "mode": "walk_forward",
+  "config": {
+    "symbols": [
+      "XRPUSDT"
+    ],
+    "start": null,
+    "end": null,
+    "initial_balance": 1000.0,
+    "leverage": 10,
+    "fee_pct": 0.04,
+    "slippage_pct": 0.01,
+    "use_ml": false,
+    "ml_threshold": 0.55,
+    "max_daily_loss_pct": 0.05,
+    "max_positions": 3,
+    "max_same_direction": 2,
+    "margin_max_ratio": 0.5,
+    "margin_min_ratio": 0.2,
+    "margin_decay_rate": 0.0006,
+    "atr_sl_mult": 2.0,
+    "atr_tp_mult": 2.0,
+    "min_notional": 5.0,
+    "signal_threshold": 3,
+    "adx_threshold": 25.0,
+    "volume_multiplier": 2.5,
+    "train_months": 3,
+    "test_months": 1,
+    "time_weight_decay": 2.0,
+    "negative_ratio": 5
+  },
+  "summary": {
+    "total_trades": 0,
+    "total_pnl": 0.0,
+    "return_pct": 0.0,
+    "win_rate": 0.0,
+    "avg_win": 0.0,
+    "avg_loss": 0.0,
+    "profit_factor": 0.0,
+    "max_drawdown_pct": 0.0,
+    "sharpe_ratio": 0.0,
+    "total_fees": 0.0,
+    "close_reasons": {}
+  },
+  "folds": [
+    {
+      "fold": 1,
+      "train_period": "2025-03-05 ~ 2025-06-05",
+      "test_period": "2025-06-05 ~ 2025-07-05",
+      "summary": {
+        "total_trades": 0,
+        "total_pnl": 0.0,
+        "return_pct": 0.0,
+        "win_rate": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "total_fees": 0.0,
+        "close_reasons": {}
+      }
+    },
+    {
+      "fold": 2,
+      "train_period": "2025-06-05 ~ 2025-09-05",
+      "test_period": "2025-09-05 ~ 2025-10-05",
+      "summary": {
+        "total_trades": 0,
+        "total_pnl": 0.0,
+        "return_pct": 0.0,
+        "win_rate": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "total_fees": 0.0,
+        "close_reasons": {}
+      }
+    },
+    {
+      "fold": 3,
+      "train_period": "2025-09-05 ~ 2025-12-05",
+      "test_period": "2025-12-05 ~ 2026-01-05",
+      "summary": {
+        "total_trades": 0,
+        "total_pnl": 0.0,
+        "return_pct": 0.0,
+        "win_rate": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 0.0,
+        "sharpe_ratio": 0.0,
+        "total_fees": 0.0,
+        "close_reasons": {}
+      }
+    }
+  ],
+  "trades": [],
+  "validation": {
+    "overall": "PASS",
+    "checks": [
+      {
+        "name": "trade_count",
+        "passed": true,
+        "level": "FAIL",
+        "message": "트레이드 없음 (검증 스킵)"
+      }
+    ]
+  }
+}
