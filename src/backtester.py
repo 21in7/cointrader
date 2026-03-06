@@ -244,8 +244,8 @@ class Backtester:
             )
             logger.info(f"[{sym}] 데이터 로드: {len(df):,}캔들 ({df.index[0]} ~ {df.index[-1]})")
 
-        # walk-forward 모델 주입
-        if ml_models is not None:
+        # walk-forward 모델 주입 (use_ml=True일 때만)
+        if ml_models is not None and self.cfg.use_ml:
             self.ml_filters = {}
             for sym in self.cfg.symbols:
                 if sym in ml_models and ml_models[sym] is not None:
@@ -620,13 +620,14 @@ class WalkForwardBacktester:
                          f"학습 {train_start.date()}~{train_end.date()}, "
                          f"검증 {test_start.date()}~{test_end.date()}")
 
-            # 심볼별 모델 학습
+            # 심볼별 모델 학습 (use_ml=True일 때만)
             models = {}
-            for sym in self.cfg.symbols:
-                model = self._train_model(
-                    all_raw[sym], train_start, train_end, sym
-                )
-                models[sym] = model
+            if self.cfg.use_ml:
+                for sym in self.cfg.symbols:
+                    model = self._train_model(
+                        all_raw[sym], train_start, train_end, sym
+                    )
+                    models[sym] = model
 
             # 검증 구간 백테스트
             test_cfg = BacktestConfig(
