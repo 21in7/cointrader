@@ -36,6 +36,12 @@ bash scripts/train_and_deploy.sh mlx --symbol XRPUSDT
 # Hyperparameter tuning (50 trials, 5-fold walk-forward)
 python scripts/tune_hyperparams.py --symbol XRPUSDT
 
+# Weekly strategy report (manual, skip data fetch)
+python scripts/weekly_report.py --skip-fetch
+
+# Weekly report with data refresh
+python scripts/weekly_report.py
+
 # Fetch historical data (single symbol with auto correlation)
 python scripts/fetch_history.py --symbol TRXUSDT --interval 15m --days 365
 
@@ -131,4 +137,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-05 | `multi-symbol-trading` (design + plan) | Completed |
 | 2026-03-06 | `multi-symbol-dashboard` (design + plan) | Completed |
 | 2026-03-06 | `strategy-parameter-sweep` (plan) | Completed |
-| 2026-03-07 | `weekly-report` (plan) | In Progress |
+| 2026-03-07 | `weekly-report` (plan) | Completed |
