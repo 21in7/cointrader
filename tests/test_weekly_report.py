@@ -232,3 +232,51 @@ def test_send_report_uses_notifier():
         instance = MockNotifier.return_value
         send_report("test report content", webhook_url="https://example.com/webhook")
         instance._send.assert_called_once_with("test report content")
+
+
+def test_generate_report_orchestration(tmp_path):
+    """generate_report가 모든 단계를 조합하여 리포트 dict를 반환."""
+    from scripts.weekly_report import generate_report
+    from unittest.mock import patch
+
+    mock_bt_result = {
+        "summary": {
+            "profit_factor": 1.24, "win_rate": 45.0,
+            "max_drawdown_pct": 12.0, "total_trades": 88,
+            "total_pnl": 379.0, "return_pct": 37.9,
+            "avg_win": 20.0, "avg_loss": -10.0,
+            "sharpe_ratio": 33.0, "total_fees": 5.0,
+            "close_reasons": {},
+        },
+        "folds": [], "trades": [],
+    }
+
+    with patch("scripts.weekly_report.run_backtest", return_value=mock_bt_result):
+        with patch("scripts.weekly_report.parse_live_trades", return_value=[]):
+            with patch("scripts.weekly_report.load_trend", return_value={
+                "pf": [1.31], "win_rate": [48.0], "mdd": [9.0], "pf_declining_3w": False,
+            }):
+                report = generate_report(
+                    symbols=["XRPUSDT"],
+                    report_dir=str(tmp_path),
+                    log_path=str(tmp_path / "bot.log"),
+                    report_date=date(2026, 3, 7),
+                )
+
+    assert report["date"] == "2026-03-07"
+    # PF는 avg_win/avg_loss에서 재계산됨 (GP=40*20=800, GL=48*10=480 → 1.67)
+    assert report["backtest"]["summary"]["profit_factor"] == 1.67
+    assert report["sweep"] is None  # PF >= 1.0이면 스윕 안 함
+
+
+def test_save_report_creates_json(tmp_path):
+    """리포트를 JSON으로 저장."""
+    from scripts.weekly_report import save_report
+
+    report = {"date": "2026-03-07", "test": True}
+    save_report(report, str(tmp_path))
+
+    saved = list(tmp_path.glob("report_*.json"))
+    assert len(saved) == 1
+    loaded = json.loads(saved[0].read_text())
+    assert loaded["date"] == "2026-03-07"

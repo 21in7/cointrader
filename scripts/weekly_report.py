@@ -11,11 +11,14 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import argparse
 import json
 import os
 import re
 import subprocess
 from datetime import date, timedelta
+
+import numpy as np
 
 from loguru import logger
 
@@ -337,3 +340,153 @@ def send_report(content: str, webhook_url: str | None = None) -> None:
     notifier = DiscordNotifier(url)
     notifier._send(content)
     logger.info("Discord 리포트 전송 완료")
+
+
+def _sanitize(obj):
+    """JSON 직렬화를 위해 numpy/inf 값을 변환."""
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, float) and (obj == float("inf") or obj == float("-inf")):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
+def save_report(report: dict, report_dir: str) -> Path:
+    """리포트를 JSON으로 저장하고 경로를 반환한다."""
+    rdir = Path(report_dir)
+    rdir.mkdir(parents=True, exist_ok=True)
+    path = rdir / f"report_{report['date']}.json"
+    with open(path, "w") as f:
+        json.dump(_sanitize(report), f, indent=2, ensure_ascii=False)
+    logger.info(f"리포트 저장: {path}")
+    return path
+
+
+def generate_report(
+    symbols: list[str],
+    report_dir: str = str(WEEKLY_DIR),
+    log_path: str = "logs/bot.log",
+    report_date: date | None = None,
+) -> dict:
+    """전체 주간 리포트를 생성한다."""
+    today = report_date or date.today()
+
+    # 1) Walk-Forward 백테스트 (심볼별)
+    logger.info("백테스트 실행 중...")
+    bt_results = {}
+    combined_trades = 0
+    combined_pnl = 0.0
+    combined_gp = 0.0
+    combined_gl = 0.0
+
+    for sym in symbols:
+        result = run_backtest([sym], TRAIN_MONTHS, TEST_MONTHS, PROD_PARAMS)
+        bt_results[sym] = result["summary"]
+        s = result["summary"]
+        n = s["total_trades"]
+        combined_trades += n
+        combined_pnl += s["total_pnl"]
+        if n > 0:
+            wr = s["win_rate"] / 100.0
+            n_wins = round(wr * n)
+            n_losses = n - n_wins
+            combined_gp += s["avg_win"] * n_wins if n_wins > 0 else 0
+            combined_gl += abs(s["avg_loss"]) * n_losses if n_losses > 0 else 0
+
+    combined_pf = combined_gp / combined_gl if combined_gl > 0 else float("inf")
+    combined_wr = (
+        sum(s["win_rate"] * s["total_trades"] for s in bt_results.values())
+        / combined_trades if combined_trades > 0 else 0
+    )
+    combined_mdd = max((s["max_drawdown_pct"] for s in bt_results.values()), default=0)
+
+    backtest_summary = {
+        "profit_factor": round(combined_pf, 2),
+        "win_rate": round(combined_wr, 1),
+        "max_drawdown_pct": round(combined_mdd, 1),
+        "total_trades": combined_trades,
+        "total_pnl": round(combined_pnl, 2),
+    }
+
+    # 2) 실전 트레이드 파싱
+    logger.info("실전 로그 파싱 중...")
+    live_trades_list = parse_live_trades(log_path, days=7)
+    live_wins = sum(1 for t in live_trades_list if t.get("net_pnl", 0) > 0)
+    live_pnl = sum(t.get("net_pnl", 0) for t in live_trades_list)
+    live_summary = {
+        "count": len(live_trades_list),
+        "net_pnl": round(live_pnl, 2),
+        "win_rate": round(live_wins / len(live_trades_list) * 100, 1) if live_trades_list else 0,
+    }
+
+    # 3) 추이 로드
+    trend = load_trend(report_dir)
+
+    # 4) 누적 트레이드 수
+    cumulative = combined_trades + len(live_trades_list)
+    rdir = Path(report_dir)
+    if rdir.exists():
+        for rpath in sorted(rdir.glob("report_*.json")):
+            try:
+                prev = json.loads(rpath.read_text())
+                cumulative += prev.get("live_trades", {}).get("count", 0)
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+    # 5) ML 트리거 체크
+    ml_trigger = check_ml_trigger(
+        cumulative_trades=cumulative,
+        current_pf=combined_pf,
+        pf_declining_3w=trend["pf_declining_3w"],
+    )
+
+    # 6) PF < 1.0이면 스윕 실행
+    sweep = None
+    if combined_pf < 1.0:
+        logger.info("PF < 1.0 — 파라미터 스윕 실행 중...")
+        sweep = run_degradation_sweep(symbols, TRAIN_MONTHS, TEST_MONTHS)
+
+    return {
+        "date": today.isoformat(),
+        "backtest": {"summary": backtest_summary, "per_symbol": bt_results},
+        "live_trades": live_summary,
+        "trend": trend,
+        "ml_trigger": ml_trigger,
+        "sweep": sweep,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="주간 전략 리포트")
+    parser.add_argument("--skip-fetch", action="store_true", help="데이터 수집 스킵")
+    parser.add_argument("--date", type=str, help="리포트 날짜 (YYYY-MM-DD)")
+    args = parser.parse_args()
+
+    report_date = date.fromisoformat(args.date) if args.date else date.today()
+
+    # 1) 데이터 수집
+    if not args.skip_fetch:
+        fetch_latest_data(SYMBOLS)
+
+    # 2) 리포트 생성
+    report = generate_report(symbols=SYMBOLS, report_date=report_date)
+
+    # 3) 저장
+    save_report(report, str(WEEKLY_DIR))
+
+    # 4) Discord 전송
+    text = format_report(report)
+    print(text)
+    send_report(text)
+
+
+if __name__ == "__main__":
+    main()
