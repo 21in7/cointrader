@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import re
 import subprocess
 from datetime import date, timedelta
 
@@ -67,3 +68,54 @@ def run_backtest(
     )
     wf = WalkForwardBacktester(cfg)
     return wf.run()
+
+
+# ── 로그 파싱 패턴 ────────────────────────────────────────────────
+_RE_ENTRY = re.compile(
+    r"\[(\w+)\]\s+(LONG|SHORT)\s+진입:\s+가격=([\d.]+),\s+수량=([\d.]+),\s+SL=([\d.]+),\s+TP=([\d.]+)"
+)
+_RE_CLOSE = re.compile(
+    r"\[(\w+)\]\s+청산 감지\((\w+)\):\s+exit=([\d.]+),\s+rp=([\d.-]+),\s+commission=([\d.]+),\s+net_pnl=([\d.-]+)"
+)
+_RE_TIMESTAMP = re.compile(r"^(\d{4}-\d{2}-\d{2})\s")
+
+
+def parse_live_trades(log_path: str, days: int = 7) -> list[dict]:
+    """봇 로그에서 최근 N일간의 진입/청산 기록을 파싱한다."""
+    path = Path(log_path)
+    if not path.exists():
+        return []
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    open_trades: dict[str, dict] = {}
+    closed_trades: list[dict] = []
+
+    for line in path.read_text().splitlines():
+        m_ts = _RE_TIMESTAMP.match(line)
+        if m_ts and m_ts.group(1) < cutoff:
+            continue
+
+        m = _RE_ENTRY.search(line)
+        if m:
+            sym, side, price, qty, sl, tp = m.groups()
+            open_trades[sym] = {
+                "symbol": sym, "side": side,
+                "entry_price": float(price), "quantity": float(qty),
+                "sl": float(sl), "tp": float(tp),
+                "entry_time": m_ts.group(1) if m_ts else "",
+            }
+            continue
+
+        m = _RE_CLOSE.search(line)
+        if m:
+            sym, reason, exit_price, rp, commission, net_pnl = m.groups()
+            trade = open_trades.pop(sym, {"symbol": sym, "side": "UNKNOWN"})
+            trade.update({
+                "close_reason": reason, "exit_price": float(exit_price),
+                "expected_pnl": float(rp), "commission": float(commission),
+                "net_pnl": float(net_pnl),
+                "exit_time": m_ts.group(1) if m_ts else "",
+            })
+            closed_trades.append(trade)
+
+    return closed_trades
