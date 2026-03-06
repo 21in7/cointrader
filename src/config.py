@@ -56,3 +56,4 @@ class Config:
         # correlation_symbols
         corr_env = os.getenv("CORRELATION_SYMBOLS", "BTCUSDT,ETHUSDT")
         self.correlation_symbols = [s.strip() for s in corr_env.split(",") if s.strip()]
+
