@@ -303,3 +303,32 @@ def test_save_report_creates_json(tmp_path):
     assert len(saved) == 1
     loaded = json.loads(saved[0].read_text())
     assert loaded["date"] == "2026-03-07"
+
+
+def test_generate_quantstats_report_creates_html(tmp_path):
+    """트레이드 데이터로 quantstats HTML 리포트를 생성."""
+    from scripts.weekly_report import generate_quantstats_report
+
+    trades = [
+        {"exit_time": "2026-03-01 12:00:00", "net_pnl": 5.0},
+        {"exit_time": "2026-03-02 15:00:00", "net_pnl": -2.0},
+        {"exit_time": "2026-03-03 09:00:00", "net_pnl": 8.0},
+        {"exit_time": "2026-03-04 18:00:00", "net_pnl": -1.5},
+        {"exit_time": "2026-03-05 10:00:00", "net_pnl": 3.0},
+    ]
+    output = str(tmp_path / "test_report.html")
+    result = generate_quantstats_report(trades, output)
+
+    assert result is not None
+    assert Path(result).exists()
+    content = Path(result).read_text()
+    assert "CoinTrader" in content
+
+
+def test_generate_quantstats_report_empty_trades(tmp_path):
+    """트레이드가 없으면 None 반환."""
+    from scripts.weekly_report import generate_quantstats_report
+
+    output = str(tmp_path / "empty.html")
+    result = generate_quantstats_report([], output)
+    assert result is None

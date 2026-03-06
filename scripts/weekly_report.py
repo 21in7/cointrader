@@ -19,6 +19,7 @@ from datetime import date, timedelta
 
 import httpx
 import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -336,6 +337,44 @@ def _sanitize(obj):
     return obj
 
 
+def generate_quantstats_report(
+    trades: list[dict],
+    output_path: str,
+    title: str = "CoinTrader 주간 전략 리포트",
+    initial_balance: float = 1000.0,
+) -> str | None:
+    """백테스트 트레이드 결과로 quantstats HTML 리포트를 생성한다."""
+    if not trades:
+        logger.warning("트레이드가 없어 quantstats 리포트를 생성할 수 없습니다.")
+        return None
+
+    try:
+        import quantstats as qs
+
+        # 트레이드 PnL을 일별 수익률 시계열로 변환
+        records = []
+        for t in trades:
+            exit_time = pd.Timestamp(t["exit_time"])
+            records.append({"date": exit_time.date(), "pnl": t["net_pnl"]})
+
+        df = pd.DataFrame(records)
+        daily_pnl = df.groupby("date")["pnl"].sum()
+        daily_pnl.index = pd.to_datetime(daily_pnl.index)
+        daily_pnl = daily_pnl.sort_index()
+
+        # PnL → 수익률로 변환 (equity 기반)
+        equity = initial_balance + daily_pnl.cumsum()
+        returns = equity.pct_change().fillna(daily_pnl.iloc[0] / initial_balance)
+
+        qs.reports.html(returns, output=output_path, title=title, download_filename=output_path)
+        logger.info(f"quantstats HTML 리포트 저장: {output_path}")
+        return output_path
+
+    except Exception as e:
+        logger.warning(f"quantstats 리포트 생성 실패: {e}")
+        return None
+
+
 def save_report(report: dict, report_dir: str) -> Path:
     """리포트를 JSON으로 저장하고 경로를 반환한다."""
     rdir = Path(report_dir)
@@ -360,6 +399,7 @@ def generate_report(
     # 1) Walk-Forward 백테스트 (심볼별)
     logger.info("백테스트 실행 중...")
     bt_results = {}
+    all_bt_trades = []
     combined_trades = 0
     combined_pnl = 0.0
     combined_gp = 0.0
@@ -368,6 +408,7 @@ def generate_report(
     for sym in symbols:
         result = run_backtest([sym], TRAIN_MONTHS, TEST_MONTHS, PROD_PARAMS)
         bt_results[sym] = result["summary"]
+        all_bt_trades.extend(result.get("trades", []))
         s = result["summary"]
         n = s["total_trades"]
         combined_trades += n
@@ -437,7 +478,7 @@ def generate_report(
 
     return {
         "date": today.isoformat(),
-        "backtest": {"summary": backtest_summary, "per_symbol": bt_results},
+        "backtest": {"summary": backtest_summary, "per_symbol": bt_results, "trades": all_bt_trades},
         "live_trades": live_summary,
         "trend": trend,
         "ml_trigger": ml_trigger,
@@ -463,7 +504,13 @@ def main():
     # 3) 저장
     save_report(report, str(WEEKLY_DIR))
 
-    # 4) Discord 전송
+    # 4) quantstats HTML 리포트
+    bt_trades = report["backtest"].get("trades", [])
+    if bt_trades:
+        html_path = str(WEEKLY_DIR / f"report_{report['date']}.html")
+        generate_quantstats_report(bt_trades, html_path, title=f"CoinTrader 주간 리포트 ({report['date']})")
+
+    # 5) Discord 전송
     text = format_report(report)
     print(text)
     send_report(text)
