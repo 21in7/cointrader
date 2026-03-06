@@ -131,3 +131,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-05 | `multi-symbol-trading` (design + plan) | Completed |
 | 2026-03-06 | `multi-symbol-dashboard` (design + plan) | Completed |
 | 2026-03-06 | `strategy-parameter-sweep` (plan) | Completed |
+| 2026-03-07 | `weekly-report` (plan) | In Progress |
