@@ -141,7 +141,8 @@ class MLFilter:
                 X = features[FEATURE_COLS].values.astype(np.float32).reshape(1, -1)
                 proba = float(self._onnx_session.run(None, {input_name: X})[0][0])
             else:
-                X = features.to_frame().T
+                available = [c for c in FEATURE_COLS if c in features.index]
+                X = pd.DataFrame([features[available].values.astype(np.float64)], columns=available)
                 proba = float(self._lgbm_model.predict_proba(X)[0][1])
             logger.debug(
                 f"ML 필터 [{self.active_backend}] 확률: {proba:.3f} "

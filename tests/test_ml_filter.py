@@ -32,6 +32,7 @@ def test_no_model_should_enter_returns_true(tmp_path):
 def test_should_enter_above_threshold():
     """확률 >= 0.60 이면 True"""
     f = MLFilter(threshold=0.60)
+    f._onnx_session = None  # ONNX 비활성화, LightGBM만 테스트
     mock_model = MagicMock()
     mock_model.predict_proba.return_value = np.array([[0.35, 0.65]])
     f._lgbm_model = mock_model
@@ -42,6 +43,7 @@ def test_should_enter_above_threshold():
 def test_should_enter_below_threshold():
     """확률 < 0.60 이면 False"""
     f = MLFilter(threshold=0.60)
+    f._onnx_session = None  # ONNX 비활성화, LightGBM만 테스트
     mock_model = MagicMock()
     mock_model.predict_proba.return_value = np.array([[0.55, 0.45]])
     f._lgbm_model = mock_model

@@ -164,9 +164,11 @@ def _get_ml_proba(ml_filter: MLFilter | None, features: pd.Series) -> float | No
             X = features[FEATURE_COLS].values.astype(np.float32).reshape(1, -1)
             return float(ml_filter._onnx_session.run(None, {input_name: X})[0][0])
         else:
-            X = features.to_frame().T
+            available = [c for c in FEATURE_COLS if c in features.index]
+            X = pd.DataFrame([features[available].values.astype(np.float64)], columns=available)
             return float(ml_filter._lgbm_model.predict_proba(X)[0][1])
-    except Exception:
+    except Exception as e:
+        logger.warning(f"ML PROBA ERROR: {e}")
         return None
 
 
@@ -209,13 +211,24 @@ class Backtester:
         all_signals: dict[str, np.ndarray] = {}
         all_features: dict[str, pd.DataFrame] = {}
 
-        # BTC/ETH 상관 데이터 (있으면 로드)
-        btc_df = self._try_load_corr("BTCUSDT")
-        eth_df = self._try_load_corr("ETHUSDT")
-
         for sym in self.cfg.symbols:
             df = _load_data(sym, self.cfg.start, self.cfg.end)
             all_data[sym] = df
+
+            # BTC/ETH 상관 데이터: 임베딩된 컬럼에서 추출 (별도 파일 폴백)
+            base_cols = ["open", "high", "low", "close", "volume"]
+            btc_df = eth_df = None
+            if "close_btc" in df.columns:
+                btc_df = df[[c + "_btc" for c in base_cols]].copy()
+                btc_df.columns = base_cols
+            else:
+                btc_df = self._try_load_corr("BTCUSDT")
+            if "close_eth" in df.columns:
+                eth_df = df[[c + "_eth" for c in base_cols]].copy()
+                eth_df.columns = base_cols
+            else:
+                eth_df = self._try_load_corr("ETHUSDT")
+
             df_ind = _calc_indicators(df)
             all_indicators[sym] = df_ind
             sig_arr = _calc_signals(
