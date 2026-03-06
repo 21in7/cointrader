@@ -37,7 +37,11 @@ pipeline {
         stage('Detect Changes') {
             steps {
                 script {
-                    def changes = sh(script: 'git diff --name-only HEAD~1 || echo "ALL"', returnStdout: true).trim()
+                    // 이전 성공 빌드 커밋과 비교 (없으면 HEAD~5 fallback)
+                    def baseCommit = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: sh(script: 'git rev-parse HEAD~5 2>/dev/null || echo ""', returnStdout: true).trim()
+                    def diffCmd = baseCommit ? "git diff --name-only ${baseCommit}..HEAD" : 'git diff --name-only HEAD~1'
+                    def changes = sh(script: "${diffCmd} || echo \"ALL\"", returnStdout: true).trim()
+                    echo "Base commit: ${baseCommit ?: 'HEAD~1 (fallback)'}"
                     echo "Changed files:\n${changes}"
 
                     if (changes == 'ALL') {
