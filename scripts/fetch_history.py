@@ -28,6 +28,35 @@ load_dotenv()
 # 심볼 간 딜레이 없이 연속 요청하면 레이트 리밋(-1003) 발생
 _REQUEST_DELAY = 0.3  # 초당 ~3.3 req → 안전 마진 충분
 _FAPI_BASE = "https://fapi.binance.com"
+_MAX_RETRIES = 3
+
+
+async def _get_json_with_retry(
+    session: aiohttp.ClientSession,
+    url: str,
+    params: dict,
+    symbol: str,
+) -> list | dict | None:
+    """aiohttp GET 요청 + exponential backoff retry (최대 3회)."""
+    for attempt in range(_MAX_RETRIES):
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status == 429:
+                    wait = 2 ** (attempt + 1)
+                    print(f"  [{symbol}] Rate limit(429), {wait}초 후 재시도 ({attempt+1}/{_MAX_RETRIES})")
+                    await asyncio.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return await resp.json()
+        except Exception as e:
+            if attempt < _MAX_RETRIES - 1:
+                wait = 2 ** (attempt + 1)
+                print(f"  [{symbol}] API 오류 ({e}), {wait}초 후 재시도 ({attempt+1}/{_MAX_RETRIES})")
+                await asyncio.sleep(wait)
+            else:
+                print(f"  [{symbol}] API {_MAX_RETRIES}회 실패: {e}")
+                return None
+    return None
 
 
 def _now_ms() -> int:
@@ -148,8 +177,7 @@ async def _fetch_oi_hist(
             "limit": 500,
             "startTime": start_ts,
         }
-        async with session.get(url, params=params) as resp:
-            data = await resp.json()
+        data = await _get_json_with_retry(session, url, params, symbol)
 
         if not data or not isinstance(data, list):
             break
@@ -199,8 +227,7 @@ async def _fetch_funding_rate(
             "startTime": start_ts,
             "limit": 1000,
         }
-        async with session.get(url, params=params) as resp:
-            data = await resp.json()
+        data = await _get_json_with_retry(session, url, params, symbol)
 
         if not data or not isinstance(data, list):
             break
