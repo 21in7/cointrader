@@ -267,6 +267,7 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState(null);
 
   const [symbols, setSymbols] = useState([]);
+  const symbolsRef = useRef([]);
   const [selectedSymbol, setSelectedSymbol] = useState(null); // null = ALL
 
   const [stats, setStats] = useState({
@@ -283,7 +284,7 @@ export default function App() {
   /* ── 데이터 폴링 ─────────────────────────────────────────── */
   const fetchAll = useCallback(async () => {
     const sym = selectedSymbol ? `?symbol=${selectedSymbol}` : "";
-    const symRequired = selectedSymbol || symbols[0] || "XRPUSDT";
+    const symRequired = selectedSymbol || symbolsRef.current[0] || "XRPUSDT";
 
     const [symRes, sRes, pRes, tRes, dRes, cRes] = await Promise.all([
       api("/symbols"),
@@ -294,7 +295,10 @@ export default function App() {
       api(`/candles?symbol=${symRequired}&limit=96`),
     ]);
 
-    if (symRes?.symbols) setSymbols(symRes.symbols);
+    if (symRes?.symbols) {
+      symbolsRef.current = symRes.symbols;
+      setSymbols(symRes.symbols);
+    }
     if (sRes && sRes.total_trades !== undefined) {
       setStats(sRes);
       setIsLive(true);
@@ -307,7 +311,7 @@ export default function App() {
     if (tRes?.trades) setTrades(tRes.trades);
     if (dRes?.daily) setDaily(dRes.daily);
     if (cRes?.candles) setCandles(cRes.candles);
-  }, [selectedSymbol, symbols]);
+  }, [selectedSymbol]);
 
   useEffect(() => {
     fetchAll();
