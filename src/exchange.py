@@ -1,4 +1,5 @@
 import asyncio
+import math
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
 from loguru import logger
@@ -13,8 +14,52 @@ class BinanceFuturesClient:
             api_key=config.api_key,
             api_secret=config.api_secret,
         )
+        self._qty_precision: int | None = None
+        self._price_precision: int | None = None
 
     MIN_NOTIONAL = 5.0  # 바이낸스 선물 최소 명목금액 (USDT)
+
+    def _load_symbol_precision(self) -> None:
+        """바이낸스 exchange info에서 심볼별 수량/가격 정밀도를 로드한다."""
+        try:
+            info = self.client.futures_exchange_info()
+            for s in info["symbols"]:
+                if s["symbol"] == self.symbol:
+                    self._qty_precision = s.get("quantityPrecision", 1)
+                    self._price_precision = s.get("pricePrecision", 2)
+                    logger.info(
+                        f"[{self.symbol}] 정밀도 로드: qty={self._qty_precision}, price={self._price_precision}"
+                    )
+                    return
+            logger.warning(f"[{self.symbol}] exchange info에서 심볼 미발견, 기본 정밀도 사용")
+            self._qty_precision = 1
+            self._price_precision = 2
+        except Exception as e:
+            logger.warning(f"[{self.symbol}] exchange info 조회 실패 ({e}), 기본 정밀도 사용")
+            self._qty_precision = 1
+            self._price_precision = 2
+
+    @property
+    def qty_precision(self) -> int:
+        if self._qty_precision is None:
+            self._load_symbol_precision()
+        return self._qty_precision
+
+    @property
+    def price_precision(self) -> int:
+        if self._price_precision is None:
+            self._load_symbol_precision()
+        return self._price_precision
+
+    def _round_qty(self, qty: float) -> float:
+        """심볼의 quantityPrecision에 맞춰 수량을 내림(truncate)한다."""
+        p = self.qty_precision
+        factor = 10 ** p
+        return math.floor(qty * factor) / factor
+
+    def _round_price(self, price: float) -> float:
+        """심볼의 pricePrecision에 맞춰 가격을 반올림한다."""
+        return round(price, self.price_precision)
 
     def calculate_quantity(self, balance: float, price: float, leverage: int, margin_ratio: float) -> float:
         """동적 증거금 비율 기반 포지션 크기 계산 (최소 명목금액 $5 보장)"""
@@ -22,9 +67,9 @@ class BinanceFuturesClient:
         if notional < self.MIN_NOTIONAL:
             notional = self.MIN_NOTIONAL
         quantity = notional / price
-        qty_rounded = round(quantity, 1)
+        qty_rounded = self._round_qty(quantity)
         if qty_rounded * price < self.MIN_NOTIONAL:
-            qty_rounded = round(self.MIN_NOTIONAL / price + 0.05, 1)
+            qty_rounded = self._round_qty(self.MIN_NOTIONAL / price + 10 ** -self.qty_precision)
         return qty_rounded
 
     async def set_leverage(self, leverage: int) -> dict:

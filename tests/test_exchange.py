@@ -23,6 +23,8 @@ def client():
     c = BinanceFuturesClient.__new__(BinanceFuturesClient)
     c.config = config
     c.symbol = config.symbol
+    c._qty_precision = 1
+    c._price_precision = 4
     return c
 
 
@@ -39,6 +41,8 @@ def exchange():
     c.config = config
     c.symbol = config.symbol
     c.client = MagicMock()
+    c._qty_precision = 1
+    c._price_precision = 4
     return c
 
 

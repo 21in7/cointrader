@@ -248,14 +248,14 @@ class TradingBot:
             side=sl_side,
             quantity=quantity,
             order_type="STOP_MARKET",
-            stop_price=round(stop_loss, 4),
+            stop_price=self.exchange._round_price(stop_loss),
             reduce_only=True,
         )
         await self.exchange.place_order(
             side=sl_side,
             quantity=quantity,
             order_type="TAKE_PROFIT_MARKET",
-            stop_price=round(take_profit, 4),
+            stop_price=self.exchange._round_price(take_profit),
             reduce_only=True,
         )
 
