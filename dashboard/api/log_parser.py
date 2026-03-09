@@ -106,13 +106,7 @@ class LogParser:
 
     def _init_db(self):
         self.conn.executescript("""
-            DROP TABLE IF EXISTS trades;
-            DROP TABLE IF EXISTS candles;
-            DROP TABLE IF EXISTS daily_pnl;
-            DROP TABLE IF EXISTS bot_status;
-            DROP TABLE IF EXISTS parse_state;
-
-            CREATE TABLE trades (
+            CREATE TABLE IF NOT EXISTS trades (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol          TEXT    NOT NULL,
                 direction       TEXT    NOT NULL,
@@ -137,7 +131,7 @@ class LogParser:
                 extra           TEXT
             );
 
-            CREATE TABLE candles (
+            CREATE TABLE IF NOT EXISTS candles (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol          TEXT    NOT NULL,
                 ts              TEXT    NOT NULL,
@@ -150,7 +144,7 @@ class LogParser:
                 UNIQUE(symbol, ts)
             );
 
-            CREATE TABLE daily_pnl (
+            CREATE TABLE IF NOT EXISTS daily_pnl (
                 symbol          TEXT    NOT NULL,
                 date            TEXT    NOT NULL,
                 cumulative_pnl  REAL    DEFAULT 0,
@@ -161,20 +155,20 @@ class LogParser:
                 PRIMARY KEY(symbol, date)
             );
 
-            CREATE TABLE bot_status (
+            CREATE TABLE IF NOT EXISTS bot_status (
                 key             TEXT    PRIMARY KEY,
                 value           TEXT,
                 updated_at      TEXT
             );
 
-            CREATE TABLE parse_state (
+            CREATE TABLE IF NOT EXISTS parse_state (
                 filepath        TEXT    PRIMARY KEY,
                 position        INTEGER DEFAULT 0
             );
 
-            CREATE INDEX idx_candles_symbol_ts ON candles(symbol, ts);
-            CREATE INDEX idx_trades_status ON trades(status);
-            CREATE INDEX idx_trades_symbol ON trades(symbol);
+            CREATE INDEX IF NOT EXISTS idx_candles_symbol_ts ON candles(symbol, ts);
+            CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
+            CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
         """)
         self.conn.commit()
         self._load_state()
