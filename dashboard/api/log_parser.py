@@ -214,7 +214,7 @@ class LogParser:
             time.sleep(POLL_INTERVAL)
 
     def _scan_logs(self):
-        log_files = sorted(glob.glob(os.path.join(LOG_DIR, "bot_*.log")))
+        log_files = sorted(glob.glob(os.path.join(LOG_DIR, "bot*.log")))
         main_log = os.path.join(LOG_DIR, "bot.log")
         if os.path.exists(main_log):
             log_files.append(main_log)
