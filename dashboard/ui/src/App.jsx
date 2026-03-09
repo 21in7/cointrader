@@ -403,7 +403,20 @@ export default function App() {
           {/* 오픈 포지션 — 복수 표시 */}
           {positions.length > 0 && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {positions.map((pos) => (
+              {positions.map((pos) => {
+                const curP = parseFloat(botStatus[`${pos.symbol}:current_price`] || 0);
+                const entP = parseFloat(pos.entry_price || 0);
+                const isShort = pos.direction === "SHORT";
+                const uPnl = botStatus[`${pos.symbol}:unrealized_pnl`];
+                const uPnlPct = botStatus[`${pos.symbol}:unrealized_pnl_pct`];
+                const pnlPct = uPnlPct != null
+                  ? parseFloat(uPnlPct)
+                  : (entP > 0 && curP > 0
+                    ? ((isShort ? entP - curP : curP - entP) / entP * 100 * (pos.leverage || 10))
+                    : null);
+                const pnlUsdt = uPnl != null ? parseFloat(uPnl) : null;
+                const pnlColor = pnlPct > 0 ? S.green : pnlPct < 0 ? S.red : S.text3;
+                return (
                 <div key={pos.id} style={{
                   background: "linear-gradient(135deg,rgba(99,102,241,0.08) 0%,rgba(99,102,241,0.02) 100%)",
                   border: "1px solid rgba(99,102,241,0.15)", borderRadius: 14,
@@ -414,17 +427,24 @@ export default function App() {
                   </div>
                   <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                     <Badge
-                      bg={pos.direction === "SHORT" ? "rgba(239,68,68,0.12)" : "rgba(52,211,153,0.12)"}
-                      color={pos.direction === "SHORT" ? S.red : S.green}
+                      bg={isShort ? "rgba(239,68,68,0.12)" : "rgba(52,211,153,0.12)"}
+                      color={isShort ? S.red : S.green}
                     >
                       {pos.direction} {pos.leverage || 10}x
                     </Badge>
                     <span style={{ fontSize: 14, fontWeight: 700, fontFamily: S.mono }}>
                       {fmt(pos.entry_price)}
                     </span>
+                    {pnlPct !== null && (
+                      <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.mono, color: pnlColor }}>
+                        {pnlUsdt != null ? `${pnlUsdt > 0 ? "+" : ""}${pnlUsdt.toFixed(4)}` : ""}
+                        {` (${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`}
+                      </span>
+                    )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

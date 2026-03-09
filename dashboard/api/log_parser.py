@@ -68,6 +68,12 @@ PATTERNS = {
         r".*\[(?P<symbol>\w+)\] 오늘 누적 PnL: (?P<pnl>[+\-\d.]+) USDT"
     ),
 
+    "position_monitor": re.compile(
+        r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
+        r".*\[(?P<symbol>\w+)\] 포지션 모니터 \| (?P<direction>\w+) \| "
+        r"현재가=(?P<price>[\d.]+) \| PnL=(?P<pnl>[+\-\d.]+) USDT \((?P<pnl_pct>[+\-\d.]+)%\)"
+    ),
+
     "bot_start": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
         r".*\[(?P<symbol>\w+)\] 봇 시작, 레버리지 (?P<leverage>\d+)x"
@@ -270,6 +276,15 @@ class LogParser:
         m = PATTERNS["ml_filter"].search(line)
         if m:
             self._set_status("ml_threshold", m.group("threshold"))
+            return
+
+        # 포지션 모니터 (5분 간격 현재가·PnL 갱신)
+        m = PATTERNS["position_monitor"].search(line)
+        if m:
+            symbol = m.group("symbol")
+            self._set_status(f"{symbol}:current_price", m.group("price"))
+            self._set_status(f"{symbol}:unrealized_pnl", m.group("pnl"))
+            self._set_status(f"{symbol}:unrealized_pnl_pct", m.group("pnl_pct"))
             return
 
         # 포지션 복구 (재시작 시)
