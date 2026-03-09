@@ -37,9 +37,9 @@ def get_symbols():
     """활성 심볼 목록 반환."""
     with get_db() as db:
         rows = db.execute(
-            "SELECT key FROM bot_status WHERE key LIKE '%:last_start'"
+            "SELECT DISTINCT key FROM bot_status WHERE key LIKE '%:%'"
         ).fetchall()
-    symbols = [r["key"].split(":")[0] for r in rows]
+    symbols = {r["key"].split(":")[0] for r in rows}
     return {"symbols": sorted(symbols)}
 
 
