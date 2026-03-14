@@ -306,9 +306,42 @@ class TradingBot:
     _MONITOR_INTERVAL = 300  # 5분
 
     async def _position_monitor(self):
-        """포지션 보유 중일 때 5분마다 현재가·미실현 PnL을 로깅한다."""
+        """포지션 보유 중일 때 5분마다 현재가·미실현 PnL을 로깅한다.
+        또한 Binance API를 조회하여 WebSocket 이벤트 누락 시 청산을 감지한다."""
         while True:
             await asyncio.sleep(self._MONITOR_INTERVAL)
+
+            # ── 폴백: Binance API로 실제 포지션 상태 확인 ──
+            if self.current_trade_side is not None and not self._is_reentering:
+                try:
+                    actual_pos = await self.exchange.get_position()
+                    if actual_pos is None:
+                        logger.warning(
+                            f"[{self.symbol}] 포지션 불일치 감지: "
+                            f"봇={self.current_trade_side}, 바이낸스=포지션 없음 — 상태 동기화"
+                        )
+                        estimated_pnl = 0.0
+                        await self.risk.close_position(self.symbol, estimated_pnl)
+                        self.notifier.notify_close(
+                            symbol=self.symbol,
+                            side=self.current_trade_side,
+                            close_reason="SYNC",
+                            exit_price=0.0,
+                            estimated_pnl=0.0,
+                            net_pnl=0.0,
+                            diff=0.0,
+                        )
+                        logger.info(
+                            f"[{self.symbol}] 청산 감지(SYNC): exit=0.0000, "
+                            f"rp=+0.0000, commission=0.0000, net_pnl=+0.0000"
+                        )
+                        self.current_trade_side = None
+                        self._entry_price = None
+                        self._entry_quantity = None
+                        continue
+                except Exception as e:
+                    logger.debug(f"[{self.symbol}] 포지션 동기화 확인 실패 (무시): {e}")
+
             if self.current_trade_side is None:
                 continue
             price = self.stream.latest_price
