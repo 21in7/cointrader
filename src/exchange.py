@@ -193,6 +193,27 @@ class BinanceFuturesClient:
         except Exception as e:
             logger.warning(f"Algo 주문 전체 취소 실패 (무시): {e}")
 
+    async def get_recent_income(self, limit: int = 5) -> list[dict]:
+        """최근 REALIZED_PNL + COMMISSION 내역을 조회한다."""
+        loop = asyncio.get_event_loop()
+        try:
+            rows = await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_income_history(
+                    symbol=self.symbol, incomeType="REALIZED_PNL", limit=limit,
+                ),
+            )
+            commissions = await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_income_history(
+                    symbol=self.symbol, incomeType="COMMISSION", limit=limit,
+                ),
+            )
+            return rows, commissions
+        except Exception as e:
+            logger.warning(f"[{self.symbol}] 수익 내역 조회 실패: {e}")
+            return [], []
+
     async def get_open_interest(self) -> float | None:
         """현재 미결제약정(OI)을 조회한다. 오류 시 None 반환."""
         loop = asyncio.get_event_loop()

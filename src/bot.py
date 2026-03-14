@@ -320,20 +320,40 @@ class TradingBot:
                             f"[{self.symbol}] 포지션 불일치 감지: "
                             f"봇={self.current_trade_side}, 바이낸스=포지션 없음 — 상태 동기화"
                         )
-                        estimated_pnl = 0.0
-                        await self.risk.close_position(self.symbol, estimated_pnl)
+                        # Binance income API에서 실제 PnL 조회
+                        realized_pnl = 0.0
+                        commission = 0.0
+                        exit_price = 0.0
+                        try:
+                            pnl_rows, comm_rows = await self.exchange.get_recent_income(limit=5)
+                            if pnl_rows:
+                                realized_pnl = float(pnl_rows[-1].get("income", "0"))
+                            if comm_rows:
+                                commission = abs(float(comm_rows[-1].get("income", "0")))
+                        except Exception:
+                            pass
+                        net_pnl = realized_pnl - commission
+                        # exit_price 추정: 진입가 + PnL/수량
+                        if self._entry_quantity and self._entry_quantity > 0 and self._entry_price:
+                            if self.current_trade_side == "LONG":
+                                exit_price = self._entry_price + realized_pnl / self._entry_quantity
+                            else:
+                                exit_price = self._entry_price - realized_pnl / self._entry_quantity
+
+                        await self.risk.close_position(self.symbol, net_pnl)
                         self.notifier.notify_close(
                             symbol=self.symbol,
                             side=self.current_trade_side,
                             close_reason="SYNC",
-                            exit_price=0.0,
-                            estimated_pnl=0.0,
-                            net_pnl=0.0,
-                            diff=0.0,
+                            exit_price=exit_price,
+                            estimated_pnl=realized_pnl,
+                            net_pnl=net_pnl,
+                            diff=net_pnl - realized_pnl,
                         )
                         logger.info(
-                            f"[{self.symbol}] 청산 감지(SYNC): exit=0.0000, "
-                            f"rp=+0.0000, commission=0.0000, net_pnl=+0.0000"
+                            f"[{self.symbol}] 청산 감지(SYNC): exit={exit_price:.4f}, "
+                            f"rp={realized_pnl:+.4f}, commission={commission:.4f}, "
+                            f"net_pnl={net_pnl:+.4f}"
                         )
                         self.current_trade_side = None
                         self._entry_price = None
