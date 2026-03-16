@@ -128,7 +128,8 @@ class LogParser:
                 net_pnl         REAL,
                 status          TEXT    NOT NULL DEFAULT 'OPEN',
                 close_reason    TEXT,
-                extra           TEXT
+                extra           TEXT,
+                UNIQUE(symbol, entry_time, direction)
             );
 
             CREATE TABLE IF NOT EXISTS candles (
@@ -169,9 +170,31 @@ class LogParser:
             CREATE INDEX IF NOT EXISTS idx_candles_symbol_ts ON candles(symbol, ts);
             CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
             CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_unique
+                ON trades(symbol, entry_time, direction);
         """)
         self.conn.commit()
+        self._migrate_deduplicate()
         self._load_state()
+
+    def _migrate_deduplicate(self):
+        """기존 DB에 중복 trades가 있으면 제거 (가장 오래된 id만 유지)."""
+        dupes = self.conn.execute("""
+            SELECT symbol, entry_time, direction, MIN(id) AS keep_id, COUNT(*) AS cnt
+            FROM trades
+            GROUP BY symbol, entry_time, direction
+            HAVING cnt > 1
+        """).fetchall()
+        if not dupes:
+            return
+        for row in dupes:
+            self.conn.execute(
+                "DELETE FROM trades WHERE symbol=? AND entry_time=? AND direction=? AND id!=?",
+                (row["symbol"], row["entry_time"], row["direction"], row["keep_id"]),
+            )
+        self.conn.commit()
+        total = sum(r["cnt"] - 1 for r in dupes)
+        print(f"[LogParser] 마이그레이션: 중복 trades {total}건 제거")
 
     def _load_state(self):
         rows = self.conn.execute("SELECT filepath, position FROM parse_state").fetchall()
@@ -426,7 +449,7 @@ class LogParser:
             return
 
         cur = self.conn.execute(
-            """INSERT INTO trades(symbol, direction, entry_time, entry_price,
+            """INSERT OR IGNORE INTO trades(symbol, direction, entry_time, entry_price,
                quantity, leverage, sl, tp, status, extra, rsi, macd_hist, atr)
                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (symbol, direction, ts,
