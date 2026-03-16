@@ -432,9 +432,6 @@ class TradingBot:
         logger.info(f"[{self.symbol}] 봇 시작, 레버리지 {self.config.leverage}x")
         await self._recover_position()
         await self._init_oi_history()
-        balance = await self.exchange.get_balance()
-        self.risk.set_base_balance(balance)
-        logger.info(f"[{self.symbol}] 기준 잔고 설정: {balance:.2f} USDT (동적 증거금 비율 기준점)")
 
         user_stream = UserDataStream(
             symbol=self.symbol,

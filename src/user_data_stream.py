@@ -85,8 +85,8 @@ class UserDataStream:
         is_reduce    = order.get("R", False)
         realized_pnl = float(order.get("rp", "0"))
 
-        # 청산 주문 판별: reduceOnly이거나, TP/SL 타입이거나, rp != 0
-        is_close = is_reduce or order_type in _CLOSE_ORDER_TYPES or realized_pnl != 0
+        # 청산 주문 판별: reduceOnly이거나 TP/SL 타입
+        is_close = is_reduce or order_type in _CLOSE_ORDER_TYPES
         if not is_close:
             return
 

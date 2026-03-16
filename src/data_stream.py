@@ -161,26 +161,31 @@ class MultiSymbolStream:
         df.set_index("timestamp", inplace=True)
         return df
 
+    async def _preload_one(self, client: AsyncClient, symbol: str, limit: int):
+        """단일 심볼의 과거 캔들을 버퍼에 채운다."""
+        logger.info(f"{symbol.upper()} 과거 캔들 {limit}개 로드 중...")
+        klines = await client.futures_klines(
+            symbol=symbol.upper(),
+            interval=self.interval,
+            limit=limit,
+        )
+        for k in klines[:-1]:
+            self.buffers[symbol].append({
+                "timestamp": k[0],
+                "open":      float(k[1]),
+                "high":      float(k[2]),
+                "low":       float(k[3]),
+                "close":     float(k[4]),
+                "volume":    float(k[5]),
+                "is_closed": True,
+            })
+        logger.info(f"{symbol.upper()} {len(self.buffers[symbol])}개 로드 완료")
+
     async def _preload_history(self, client: AsyncClient, limit: int = _PRELOAD_LIMIT):
-        """REST API로 모든 심볼의 과거 캔들을 버퍼에 미리 채운다."""
-        for symbol in self.symbols:
-            logger.info(f"{symbol.upper()} 과거 캔들 {limit}개 로드 중...")
-            klines = await client.futures_klines(
-                symbol=symbol.upper(),
-                interval=self.interval,
-                limit=limit,
-            )
-            for k in klines[:-1]:
-                self.buffers[symbol].append({
-                    "timestamp": k[0],
-                    "open":      float(k[1]),
-                    "high":      float(k[2]),
-                    "low":       float(k[3]),
-                    "close":     float(k[4]),
-                    "volume":    float(k[5]),
-                    "is_closed": True,
-                })
-            logger.info(f"{symbol.upper()} {len(self.buffers[symbol])}개 로드 완료")
+        """REST API로 모든 심볼의 과거 캔들을 병렬로 버퍼에 미리 채운다."""
+        await asyncio.gather(*[
+            self._preload_one(client, symbol, limit) for symbol in self.symbols
+        ])
 
     async def start(self, api_key: str, api_secret: str):
         client = await AsyncClient.create(

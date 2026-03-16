@@ -7,7 +7,7 @@ FEATURE_COLS = [
     "ret_1", "ret_3", "ret_5", "signal_strength", "side",
     "btc_ret_1", "btc_ret_3", "btc_ret_5",
     "eth_ret_1", "eth_ret_3", "eth_ret_5",
-    "xrp_btc_rs", "xrp_eth_rs",
+    "primary_btc_rs", "primary_eth_rs",
     # 시장 미시구조: OI 변화율(z-score), 펀딩비(z-score)
     "oi_change", "funding_rate",
     # OI 파생 피처
@@ -28,11 +28,11 @@ def _calc_ret(closes: pd.Series, n: int) -> float:
     return (closes.iloc[-1] - prev) / prev if prev != 0 else 0.0
 
 
-def _calc_rs(xrp_ret: float, other_ret: float) -> float:
-    """상대강도 = xrp_ret / other_ret. 분모 0이면 0.0."""
+def _calc_rs(primary_ret: float, other_ret: float) -> float:
+    """상대강도 = primary_ret / other_ret. 분모 0이면 0.0."""
     if other_ret == 0.0:
         return 0.0
-    return xrp_ret / other_ret
+    return primary_ret / other_ret
 
 
 def _rolling_zscore_last(arr: np.ndarray, window: int = _ZSCORE_WINDOW) -> float:
@@ -144,8 +144,8 @@ def build_features(
             "eth_ret_1":  float(eth_ret_1),
             "eth_ret_3":  float(eth_ret_3),
             "eth_ret_5":  float(eth_ret_5),
-            "xrp_btc_rs": float(_calc_rs(ret_1, btc_ret_1)),
-            "xrp_eth_rs": float(_calc_rs(ret_1, eth_ret_1)),
+            "primary_btc_rs": float(_calc_rs(ret_1, btc_ret_1)),
+            "primary_eth_rs": float(_calc_rs(ret_1, eth_ret_1)),
         })
 
     # 실시간에서 실제 값이 제공되면 사용, 없으면 0으로 채운다
@@ -293,8 +293,8 @@ def build_features_aligned(
             "eth_ret_1":  _rolling_zscore_last(eth_r1),
             "eth_ret_3":  _rolling_zscore_last(eth_r3),
             "eth_ret_5":  _rolling_zscore_last(eth_r5),
-            "xrp_btc_rs": _rolling_zscore_last(rs_btc),
-            "xrp_eth_rs": _rolling_zscore_last(rs_eth),
+            "primary_btc_rs": _rolling_zscore_last(rs_btc),
+            "primary_eth_rs": _rolling_zscore_last(rs_eth),
         })
 
     # OI/펀딩비 z-score (실시간 값이 제공되면 히스토리 끝에 추가하여 z-score)

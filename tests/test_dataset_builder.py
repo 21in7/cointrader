@@ -203,11 +203,11 @@ def test_rs_zero_denominator():
     signal_arr = _calc_signals(d)
     feat = _calc_features_vectorized(d, signal_arr, btc_df=btc_df, eth_df=eth_df)
 
-    assert "xrp_btc_rs" in feat.columns, "xrp_btc_rs 컬럼이 있어야 함"
-    assert not feat["xrp_btc_rs"].isin([np.inf, -np.inf]).any(), \
-        "xrp_btc_rs에 inf가 있으면 안 됨"
-    assert not feat["xrp_btc_rs"].isna().all(), \
-        "xrp_btc_rs가 전부 nan이면 안 됨"
+    assert "primary_btc_rs" in feat.columns, "primary_btc_rs 컬럼이 있어야 함"
+    assert not feat["primary_btc_rs"].isin([np.inf, -np.inf]).any(), \
+        "primary_btc_rs에 inf가 있으면 안 됨"
+    assert not feat["primary_btc_rs"].isna().all(), \
+        "primary_btc_rs가 전부 nan이면 안 됨"
 
 
 @pytest.fixture

@@ -73,7 +73,7 @@ class BinanceFuturesClient:
         return qty_rounded
 
     async def set_leverage(self, leverage: int) -> dict:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
             lambda: self.client.futures_change_leverage(
@@ -82,7 +82,7 @@ class BinanceFuturesClient:
         )
 
     async def get_balance(self) -> float:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         balances = await loop.run_in_executor(
             None, self.client.futures_account_balance
         )
@@ -100,7 +100,7 @@ class BinanceFuturesClient:
         stop_price: float = None,
         reduce_only: bool = False,
     ) -> dict:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         params = dict(
             symbol=self.symbol,
@@ -123,7 +123,7 @@ class BinanceFuturesClient:
             raise
 
     async def get_position(self) -> dict | None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         positions = await loop.run_in_executor(
             None,
             lambda: self.client.futures_position_information(
@@ -137,7 +137,7 @@ class BinanceFuturesClient:
 
     async def cancel_all_orders(self):
         """오픈 주문을 모두 취소한다."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
             lambda: self.client.futures_cancel_all_open_orders(
@@ -147,7 +147,7 @@ class BinanceFuturesClient:
 
     async def get_recent_income(self, limit: int = 5) -> list[dict]:
         """최근 REALIZED_PNL + COMMISSION 내역을 조회한다."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             rows = await loop.run_in_executor(
                 None,
@@ -168,7 +168,7 @@ class BinanceFuturesClient:
 
     async def get_open_interest(self) -> float | None:
         """현재 미결제약정(OI)을 조회한다. 오류 시 None 반환."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(
                 None,
@@ -181,7 +181,7 @@ class BinanceFuturesClient:
 
     async def get_funding_rate(self) -> float | None:
         """현재 펀딩비를 조회한다. 오류 시 None 반환."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(
                 None,
@@ -194,7 +194,7 @@ class BinanceFuturesClient:
 
     async def get_oi_history(self, limit: int = 5) -> list[float]:
         """최근 OI 변화율 히스토리를 조회한다 (봇 초기화용). 실패 시 빈 리스트."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             result = await loop.run_in_executor(
                 None,
@@ -218,7 +218,7 @@ class BinanceFuturesClient:
 
     async def create_listen_key(self) -> str:
         """POST /fapi/v1/listenKey — listenKey 신규 발급"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
             lambda: self.client.futures_stream_get_listen_key(),
@@ -227,7 +227,7 @@ class BinanceFuturesClient:
 
     async def keepalive_listen_key(self, listen_key: str) -> None:
         """PUT /fapi/v1/listenKey — listenKey 만료 연장 (60분 → 리셋)"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
             lambda: self.client.futures_stream_keepalive(listenKey=listen_key),
@@ -235,7 +235,7 @@ class BinanceFuturesClient:
 
     async def delete_listen_key(self, listen_key: str) -> None:
         """DELETE /fapi/v1/listenKey — listenKey 삭제 (정상 종료 시)"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         try:
             await loop.run_in_executor(
                 None,

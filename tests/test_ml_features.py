@@ -48,7 +48,7 @@ def test_build_features_rs_zero_when_btc_ret_zero():
     btc_df["close"] = 50000.0  # 모든 캔들 동일
     eth_df = _make_df(10, base_price=3000.0)
     features = build_features(xrp_df, "LONG", btc_df=btc_df, eth_df=eth_df)
-    assert features["xrp_btc_rs"] == 0.0
+    assert features["primary_btc_rs"] == 0.0
 
 def test_feature_cols_has_24_items():
     """Legacy test — updated to 26 after OI derived features added."""

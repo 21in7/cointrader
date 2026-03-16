@@ -266,15 +266,15 @@ def _calc_features_vectorized(
         eth_r3 = _align(eth_ret_3, n).astype(np.float32)
         eth_r5 = _align(eth_ret_5, n).astype(np.float32)
 
-        xrp_r1 = ret_1.astype(np.float32)
-        xrp_btc_rs_raw = np.divide(
-            xrp_r1, btc_r1,
-            out=np.zeros_like(xrp_r1),
+        primary_r1 = ret_1.astype(np.float32)
+        primary_btc_rs_raw = np.divide(
+            primary_r1, btc_r1,
+            out=np.zeros_like(primary_r1),
             where=(btc_r1 != 0),
         ).astype(np.float32)
-        xrp_eth_rs_raw = np.divide(
-            xrp_r1, eth_r1,
-            out=np.zeros_like(xrp_r1),
+        primary_eth_rs_raw = np.divide(
+            primary_r1, eth_r1,
+            out=np.zeros_like(primary_r1),
             where=(eth_r1 != 0),
         ).astype(np.float32)
 
@@ -285,8 +285,8 @@ def _calc_features_vectorized(
             "eth_ret_1":  _rolling_zscore(eth_r1),
             "eth_ret_3":  _rolling_zscore(eth_r3),
             "eth_ret_5":  _rolling_zscore(eth_r5),
-            "xrp_btc_rs": _rolling_zscore(xrp_btc_rs_raw),
-            "xrp_eth_rs": _rolling_zscore(xrp_eth_rs_raw),
+            "primary_btc_rs": _rolling_zscore(primary_btc_rs_raw),
+            "primary_eth_rs": _rolling_zscore(primary_eth_rs_raw),
         }, index=d.index)
         result = pd.concat([result, extra], axis=1)
 
