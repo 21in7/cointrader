@@ -191,7 +191,7 @@ class TradingBot:
         num_symbols = len(self.config.symbols)
         per_symbol_balance = balance / num_symbols
         price = df["close"].iloc[-1]
-        margin_ratio = self.risk.get_dynamic_margin_ratio(balance)
+        margin_ratio = self.risk.get_dynamic_margin_ratio(per_symbol_balance)
         quantity = self.exchange.calculate_quantity(
             balance=per_symbol_balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
         )
@@ -325,11 +325,11 @@ class TradingBot:
                         commission = 0.0
                         exit_price = 0.0
                         try:
-                            pnl_rows, comm_rows = await self.exchange.get_recent_income(limit=5)
+                            pnl_rows, comm_rows = await self.exchange.get_recent_income(limit=10)
                             if pnl_rows:
-                                realized_pnl = float(pnl_rows[-1].get("income", "0"))
+                                realized_pnl = sum(float(r.get("income", "0")) for r in pnl_rows)
                             if comm_rows:
-                                commission = abs(float(comm_rows[-1].get("income", "0")))
+                                commission = sum(abs(float(r.get("income", "0"))) for r in comm_rows)
                         except Exception:
                             pass
                         net_pnl = realized_pnl - commission
@@ -399,8 +399,15 @@ class TradingBot:
         """기존 포지션을 청산하고, ML 필터 통과 시 반대 방향으로 즉시 재진입한다."""
         # 재진입 플래그: User Data Stream 콜백이 신규 포지션 상태를 초기화하지 않도록 보호
         self._is_reentering = True
+        prev_side = self.current_trade_side
         try:
             await self._close_position(position)
+
+            # 청산 완료 확인: 콜백이 처리했든 아니든 로컬 상태를 명시적으로 Flat으로 전환
+            self.current_trade_side = None
+            self._entry_price = None
+            self._entry_quantity = None
+            await self.risk.close_position(self.symbol, 0.0) if prev_side and self.symbol not in self.risk.open_positions else None
 
             if not await self.risk.can_open_new_position(self.symbol, signal):
                 logger.info(f"[{self.symbol}] 최대 포지션 수 도달 — 재진입 건너뜀")
