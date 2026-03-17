@@ -15,6 +15,7 @@ class UserDataStream:
     - python-binance BinanceSocketManager의 내장 keepalive 활용
     - 네트워크 단절 시 무한 재연결 루프
     - ORDER_TRADE_UPDATE 이벤트에서 지정 심볼의 청산 주문만 필터링하여 콜백 호출
+    - 부분 체결(PARTIALLY_FILLED) 시 rp/commission을 누적하여 최종 FILLED에서 합산 콜백
     """
 
     def __init__(
@@ -24,6 +25,8 @@ class UserDataStream:
     ):
         self._symbol = symbol.upper()
         self._on_order_filled = on_order_filled
+        # 부분 체결 누적용: order_id → {rp, commission}
+        self._partial_fills: dict[int, dict[str, float]] = {}
 
     async def start(self, api_key: str, api_secret: str) -> None:
         """User Data Stream 메인 루프 — 봇 종료 시까지 실행."""
@@ -77,20 +80,43 @@ class UserDataStream:
         if order.get("s", "") != self._symbol:
             return
 
-        # x: Execution Type, X: Order Status
-        if order.get("x") != "TRADE" or order.get("X") != "FILLED":
+        # x: Execution Type — TRADE만 처리
+        if order.get("x") != "TRADE":
             return
 
+        order_status = order.get("X", "")
         order_type   = order.get("o", "")
         is_reduce    = order.get("R", False)
-        realized_pnl = float(order.get("rp", "0"))
+        order_id     = order.get("i", 0)
 
         # 청산 주문 판별: reduceOnly이거나 TP/SL 타입
         is_close = is_reduce or order_type in _CLOSE_ORDER_TYPES
         if not is_close:
             return
 
-        commission = abs(float(order.get("n", "0")))
+        fill_rp         = float(order.get("rp", "0"))
+        fill_commission  = abs(float(order.get("n", "0")))
+
+        if order_status == "PARTIALLY_FILLED":
+            # 부분 체결: rp와 commission을 누적
+            if order_id not in self._partial_fills:
+                self._partial_fills[order_id] = {"rp": 0.0, "commission": 0.0}
+            self._partial_fills[order_id]["rp"] += fill_rp
+            self._partial_fills[order_id]["commission"] += fill_commission
+            logger.debug(
+                f"[{self._symbol}] 부분 체결 누적 (order_id={order_id}): "
+                f"rp={fill_rp:+.4f}, commission={fill_commission:.4f}"
+            )
+            return
+
+        if order_status != "FILLED":
+            return
+
+        # 최종 체결: 이전 부분 체결분 합산
+        accumulated = self._partial_fills.pop(order_id, {"rp": 0.0, "commission": 0.0})
+        realized_pnl = accumulated["rp"] + fill_rp
+        commission   = accumulated["commission"] + fill_commission
+
         net_pnl    = realized_pnl - commission
         exit_price = float(order.get("ap", "0"))
 
