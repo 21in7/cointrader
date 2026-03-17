@@ -6,6 +6,16 @@ load_dotenv()
 
 
 @dataclass
+class SymbolStrategyParams:
+    """Per-symbol strategy parameters (from sweep optimization)."""
+    atr_sl_mult: float = 2.0
+    atr_tp_mult: float = 2.0
+    signal_threshold: int = 3
+    adx_threshold: float = 25.0
+    volume_multiplier: float = 2.5
+
+
+@dataclass
 class Config:
     api_key: str = ""
     api_secret: str = ""
@@ -56,4 +66,25 @@ class Config:
         # correlation_symbols
         corr_env = os.getenv("CORRELATION_SYMBOLS", "BTCUSDT,ETHUSDT")
         self.correlation_symbols = [s.strip() for s in corr_env.split(",") if s.strip()]
+
+        # Per-symbol strategy params: {symbol: SymbolStrategyParams}
+        self._symbol_params: dict[str, SymbolStrategyParams] = {}
+        for sym in self.symbols:
+            self._symbol_params[sym] = SymbolStrategyParams(
+                atr_sl_mult=float(os.getenv(f"ATR_SL_MULT_{sym}", str(self.atr_sl_mult))),
+                atr_tp_mult=float(os.getenv(f"ATR_TP_MULT_{sym}", str(self.atr_tp_mult))),
+                signal_threshold=int(os.getenv(f"SIGNAL_THRESHOLD_{sym}", str(self.signal_threshold))),
+                adx_threshold=float(os.getenv(f"ADX_THRESHOLD_{sym}", str(self.adx_threshold))),
+                volume_multiplier=float(os.getenv(f"VOL_MULTIPLIER_{sym}", str(self.volume_multiplier))),
+            )
+
+    def get_symbol_params(self, symbol: str) -> SymbolStrategyParams:
+        """Get strategy params for a symbol. Falls back to global defaults."""
+        return self._symbol_params.get(symbol, SymbolStrategyParams(
+            atr_sl_mult=self.atr_sl_mult,
+            atr_tp_mult=self.atr_tp_mult,
+            signal_threshold=self.signal_threshold,
+            adx_threshold=self.adx_threshold,
+            volume_multiplier=self.volume_multiplier,
+        ))
 

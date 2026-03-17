@@ -18,6 +18,7 @@ class TradingBot:
     def __init__(self, config: Config, symbol: str = None, risk: RiskManager = None):
         self.config = config
         self.symbol = symbol or config.symbol
+        self.strategy = config.get_symbol_params(self.symbol)
         self.exchange = BinanceFuturesClient(config, symbol=self.symbol)
         self.notifier = DiscordNotifier(config.discord_webhook_url)
         self.risk = risk or RiskManager(config)
@@ -141,9 +142,9 @@ class TradingBot:
         df_with_indicators = ind.calculate_all()
         raw_signal, signal_detail = ind.get_signal(
             df_with_indicators,
-            signal_threshold=self.config.signal_threshold,
-            adx_threshold=self.config.adx_threshold,
-            volume_multiplier=self.config.volume_multiplier,
+            signal_threshold=self.strategy.signal_threshold,
+            adx_threshold=self.strategy.adx_threshold,
+            volume_multiplier=self.strategy.volume_multiplier,
         )
 
         current_price = df_with_indicators["close"].iloc[-1]
@@ -198,8 +199,8 @@ class TradingBot:
         logger.info(f"[{self.symbol}] 포지션 크기: 잔고={per_symbol_balance:.2f}/{balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
         stop_loss, take_profit = Indicators(df).get_atr_stop(
             df, signal, price,
-            atr_sl_mult=self.config.atr_sl_mult,
-            atr_tp_mult=self.config.atr_tp_mult,
+            atr_sl_mult=self.strategy.atr_sl_mult,
+            atr_tp_mult=self.strategy.atr_tp_mult,
         )
 
         notional = quantity * price
@@ -429,7 +430,12 @@ class TradingBot:
             self._is_reentering = False
 
     async def run(self):
-        logger.info(f"[{self.symbol}] 봇 시작, 레버리지 {self.config.leverage}x")
+        s = self.strategy
+        logger.info(
+            f"[{self.symbol}] 봇 시작, 레버리지 {self.config.leverage}x | "
+            f"SL={s.atr_sl_mult}x TP={s.atr_tp_mult}x Signal≥{s.signal_threshold} "
+            f"ADX≥{s.adx_threshold} Vol≥{s.volume_multiplier}x"
+        )
         await self._recover_position()
         await self._init_oi_history()
 
