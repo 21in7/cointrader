@@ -90,7 +90,7 @@ bash scripts/deploy_model.sh --symbol XRPUSDT
 
 Environment variables via `.env` file (see `.env.example`). Key vars: `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `SYMBOLS` (comma-separated, e.g. `XRPUSDT,TRXUSDT`), `CORRELATION_SYMBOLS` (default `BTCUSDT,ETHUSDT`), `LEVERAGE`, `DISCORD_WEBHOOK_URL`, `MARGIN_MAX_RATIO`, `MARGIN_MIN_RATIO`, `MAX_SAME_DIRECTION` (default 2), `NO_ML_FILTER`.
 
-`src/config.py` uses `@dataclass` with `__post_init__` to load and validate all env vars.
+`src/config.py` uses `@dataclass` with `__post_init__` to load and validate all env vars. Per-symbol strategy params supported via `SymbolStrategyParams` — override with `ATR_SL_MULT_{SYMBOL}`, `ATR_TP_MULT_{SYMBOL}`, `SIGNAL_THRESHOLD_{SYMBOL}`, `ADX_THRESHOLD_{SYMBOL}`, `VOL_MULTIPLIER_{SYMBOL}`. Access via `config.get_symbol_params(symbol)`.
 
 ## Deployment
 

@@ -44,9 +44,10 @@ main.py
      )
 ```
 
-- **독립**: 각 봇은 자체 `Exchange`, `MLFilter`, `DataStream`을 소유
+- **독립**: 각 봇은 자체 `Exchange`, `MLFilter`, `DataStream`, `SymbolStrategyParams`를 소유
 - **공유**: `RiskManager`만 싱글턴으로 글로벌 리스크(일일 손실 한도, 동일 방향 제한) 관리
 - **병렬**: `asyncio.gather()`로 동시 실행, 서로 간섭 없음
+- **심볼별 전략**: `config.get_symbol_params(symbol)`로 SL/TP/ADX 등을 심볼별 독립 설정 (`ATR_SL_MULT_XRPUSDT` 등 환경변수)
 
 ### 1.3 기술 스택
 
@@ -248,7 +249,7 @@ Binance Combined WebSocket 단일 연결로 주 거래 심볼 + 상관관계 심
 SL = 진입가 - ATR × ATR_SL_MULT (기본 2.0)
 TP = 진입가 + ATR × ATR_TP_MULT (기본 2.0)
 
-※ SL/TP/신호임계값/ADX/거래량배수 모두 환경변수로 설정 가능
+※ SL/TP/신호임계값/ADX/거래량배수 모두 환경변수로 설정 가능 (심볼별 오버라이드 지원)
 ```
 
 숏 신호는 롱의 대칭 조건으로 계산됩니다.
@@ -660,7 +661,7 @@ pytest tests/ -v          # 전체 실행
 bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 ```
 
-`tests/` 폴더에 15개 테스트 파일, 총 **136개의 테스트 케이스**가 작성되어 있습니다.
+`tests/` 폴더에 15개 테스트 파일, 총 **138개의 테스트 케이스**가 작성되어 있습니다.
 
 ### 6.2 모듈별 테스트 현황
 
@@ -720,7 +721,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 |------|--------|------|
 | `main.py` | — | 진입점. 심볼별 `TradingBot` 생성 + 공유 `RiskManager` + `asyncio.gather()` |
 | `src/bot.py` | 오케스트레이터 | 심볼별 독립 트레이딩 루프 |
-| `src/config.py` | — | 환경변수 기반 설정 (`symbols` 리스트, `correlation_symbols`) |
+| `src/config.py` | — | 환경변수 기반 설정 (`symbols` 리스트, `correlation_symbols`, 심볼별 `SymbolStrategyParams`) |
 | `src/data_stream.py` | Data | Combined WebSocket 캔들 수신·버퍼 관리 |
 | `src/indicators.py` | Signal | 기술 지표 계산 및 복합 신호 생성 |
 | `src/ml_features.py` | ML Filter | 26개 ML 피처 추출 |
