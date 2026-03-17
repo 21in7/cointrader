@@ -262,16 +262,22 @@ def test_generate_report_orchestration(tmp_path):
     from scripts.weekly_report import generate_report
     from unittest.mock import patch
 
+    # 합산 지표는 개별 트레이드에서 직접 계산되므로 mock에 트레이드 포함
+    mock_trades = [
+        {"net_pnl": 20.0, "entry_fee": 1.0, "exit_fee": 1.0, "exit_time": "2025-06-10 12:00:00"},
+        {"net_pnl": 15.0, "entry_fee": 1.0, "exit_fee": 1.0, "exit_time": "2025-06-11 12:00:00"},
+        {"net_pnl": -10.0, "entry_fee": 1.0, "exit_fee": 1.0, "exit_time": "2025-06-12 12:00:00"},
+    ]
     mock_bt_result = {
         "summary": {
             "profit_factor": 1.24, "win_rate": 45.0,
-            "max_drawdown_pct": 12.0, "total_trades": 88,
-            "total_pnl": 379.0, "return_pct": 37.9,
-            "avg_win": 20.0, "avg_loss": -10.0,
-            "sharpe_ratio": 33.0, "total_fees": 5.0,
+            "max_drawdown_pct": 12.0, "total_trades": 3,
+            "total_pnl": 25.0, "return_pct": 2.5,
+            "avg_win": 17.5, "avg_loss": -10.0,
+            "sharpe_ratio": 33.0, "total_fees": 6.0,
             "close_reasons": {},
         },
-        "folds": [], "trades": [],
+        "folds": [], "trades": mock_trades,
     }
 
     with patch("scripts.weekly_report.run_backtest", return_value=mock_bt_result):
@@ -287,8 +293,9 @@ def test_generate_report_orchestration(tmp_path):
                     )
 
     assert report["date"] == "2026-03-07"
-    # PF는 avg_win/avg_loss에서 재계산됨 (GP=40*20=800, GL=48*10=480 → 1.67)
-    assert report["backtest"]["summary"]["profit_factor"] == 1.67
+    # PF는 개별 트레이드에서 직접 계산: GP=35, GL=10 → 3.5
+    assert report["backtest"]["summary"]["profit_factor"] == 3.5
+    assert report["backtest"]["summary"]["total_trades"] == 3
     assert report["sweep"] is None  # PF >= 1.0이면 스윕 안 함
 
 

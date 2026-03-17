@@ -386,6 +386,39 @@ def save_report(report: dict, report_dir: str) -> Path:
     return path
 
 
+def _calc_combined_summary(trades: list[dict], initial_balance: float = 1000.0) -> dict:
+    """개별 트레이드 리스트에서 합산 지표를 직접 계산한다."""
+    if not trades:
+        return {
+            "profit_factor": 0.0, "win_rate": 0.0, "max_drawdown_pct": 0.0,
+            "total_trades": 0, "total_pnl": 0.0,
+        }
+
+    pnls = [t["net_pnl"] for t in trades]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p <= 0]
+
+    gross_profit = sum(wins) if wins else 0.0
+    gross_loss = abs(sum(losses)) if losses else 0.0
+
+    # 시간순 정렬 후 포트폴리오 equity curve 기반 MDD
+    sorted_trades = sorted(trades, key=lambda t: t["exit_time"])
+    sorted_pnls = [t["net_pnl"] for t in sorted_trades]
+    cumulative = np.cumsum(sorted_pnls)
+    equity = initial_balance + cumulative
+    peak = np.maximum.accumulate(equity)
+    drawdown = (peak - equity) / peak
+    mdd = float(np.max(drawdown)) * 100 if len(drawdown) > 0 else 0.0
+
+    return {
+        "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else float("inf"),
+        "win_rate": round(len(wins) / len(trades) * 100, 1),
+        "max_drawdown_pct": round(mdd, 1),
+        "total_trades": len(trades),
+        "total_pnl": round(sum(pnls), 2),
+    }
+
+
 def generate_report(
     symbols: list[str],
     report_dir: str = str(WEEKLY_DIR),
@@ -400,40 +433,14 @@ def generate_report(
     logger.info("백테스트 실행 중...")
     bt_results = {}
     all_bt_trades = []
-    combined_trades = 0
-    combined_pnl = 0.0
-    combined_gp = 0.0
-    combined_gl = 0.0
 
     for sym in symbols:
         result = run_backtest([sym], TRAIN_MONTHS, TEST_MONTHS, PROD_PARAMS)
         bt_results[sym] = result["summary"]
         all_bt_trades.extend(result.get("trades", []))
-        s = result["summary"]
-        n = s["total_trades"]
-        combined_trades += n
-        combined_pnl += s["total_pnl"]
-        if n > 0:
-            wr = s["win_rate"] / 100.0
-            n_wins = round(wr * n)
-            n_losses = n - n_wins
-            combined_gp += s["avg_win"] * n_wins if n_wins > 0 else 0
-            combined_gl += abs(s["avg_loss"]) * n_losses if n_losses > 0 else 0
 
-    combined_pf = combined_gp / combined_gl if combined_gl > 0 else float("inf")
-    combined_wr = (
-        sum(s["win_rate"] * s["total_trades"] for s in bt_results.values())
-        / combined_trades if combined_trades > 0 else 0
-    )
-    combined_mdd = max((s["max_drawdown_pct"] for s in bt_results.values()), default=0)
-
-    backtest_summary = {
-        "profit_factor": round(combined_pf, 2),
-        "win_rate": round(combined_wr, 1),
-        "max_drawdown_pct": round(combined_mdd, 1),
-        "total_trades": combined_trades,
-        "total_pnl": round(combined_pnl, 2),
-    }
+    # 합산 지표를 개별 트레이드에서 직접 계산 (간접 역산 제거)
+    backtest_summary = _calc_combined_summary(all_bt_trades)
 
     # 2) 운영 대시보드 API에서 실전 트레이드 조회
     logger.info(f"대시보드 API에서 실전 트레이드 조회 중... ({dashboard_url})")
@@ -464,15 +471,16 @@ def generate_report(
                 pass
 
     # 5) ML 트리거 체크
+    current_pf = backtest_summary["profit_factor"]
     ml_trigger = check_ml_trigger(
         cumulative_trades=cumulative,
-        current_pf=combined_pf,
+        current_pf=current_pf,
         pf_declining_3w=trend["pf_declining_3w"],
     )
 
     # 6) PF < 1.0이면 스윕 실행
     sweep = None
-    if combined_pf < 1.0:
+    if current_pf < 1.0:
         logger.info("PF < 1.0 — 파라미터 스윕 실행 중...")
         sweep = run_degradation_sweep(symbols, TRAIN_MONTHS, TEST_MONTHS)
 
