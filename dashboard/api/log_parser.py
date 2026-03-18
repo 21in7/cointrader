@@ -24,7 +24,7 @@ POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))  # 초
 PATTERNS = {
     "signal": re.compile(
         r"(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
-        r".*\[(?P<symbol>\w+)\] 신호: (?P<signal>\w+) \| 현재가: (?P<price>[\d.]+) USDT"
+        r".*\[(?P<symbol>\w+)\] 신호: (?P<signal>\w+) \|.*현재가: (?P<price>[\d.]+)"
     ),
 
     "adx": re.compile(
