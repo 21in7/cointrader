@@ -35,11 +35,11 @@ CoinTrader는 **Binance Futures 자동매매 봇**입니다.
 
 ```
 main.py
-  └─ Config (SYMBOLS=XRPUSDT,TRXUSDT,DOGEUSDT)
+  └─ Config (SYMBOLS=XRPUSDT,SOLUSDT,DOGEUSDT)
   └─ RiskManager (공유 싱글턴, asyncio.Lock)
   └─ asyncio.gather(
        TradingBot(symbol="XRPUSDT", risk=shared_risk),
-       TradingBot(symbol="TRXUSDT", risk=shared_risk),
+       TradingBot(symbol="SOLUSDT", risk=shared_risk),
        TradingBot(symbol="DOGEUSDT", risk=shared_risk),
      )
 ```
@@ -124,6 +124,10 @@ flowchart TD
 ### 2.1 진입 판단 (5단계 게이트)
 
 ```
+Gate 0: 킬스위치 확인
+  └─ 해당 심볼이 킬 상태인가? → 킬이면 즉시 return (신규 진입 차단)
+  └─ Fast Kill: 8연속 순손실 / Slow Kill: 최근 15거래 PF < 0.75
+
 Gate 1: 추세 존재 확인
   └─ ADX ≥ 25 인가? → 미만이면 HOLD (횡보장 진입 차단)
 
@@ -144,7 +148,7 @@ Gate 5: 리스크 관리
   └─ 동일 방향 포지션 2개 미만?
   └─ 같은 심볼 기존 포지션 없음?
 
-→ 5개 게이트 모두 통과 → 주문 실행
+→ 6개 게이트 모두 통과 → 주문 실행
 ```
 
 ### 2.2 청산 메커니즘
@@ -333,13 +337,15 @@ ML 필터를 통과한 신호를 실제 주문으로 변환하고, 리스크 한
 
 **리스크 제어:**
 
-| 제어 항목 | 기준 |
-|----------|------|
-| 일일 최대 손실 | 기준 잔고의 5% |
-| 최대 동시 포지션 | 3개 (전체 심볼 합산) |
-| 동일 방향 제한 | 2개 (LONG 2개면 3번째 LONG 차단) |
-| 같은 심볼 중복 | 차단 (1심볼 1포지션) |
-| 최소 명목금액 | $5 USDT |
+| 제어 항목 | 기준 | 방어 대상 |
+|----------|------|-----------|
+| 일일 최대 손실 | 기준 잔고의 5% | 단일 충격 (하루 급락) |
+| 킬스위치 Fast Kill | 8연속 순손실 | 전략 급격 붕괴 |
+| 킬스위치 Slow Kill | 최근 15거래 PF < 0.75 | 점진적 엣지 소실 (Slow Bleed) |
+| 최대 동시 포지션 | 3개 (전체 심볼 합산) | 과노출 |
+| 동일 방향 제한 | 2개 (LONG 2개면 3번째 LONG 차단) | 방향 편중 |
+| 같은 심볼 중복 | 차단 (1심볼 1포지션) | 중복 진입 |
+| 최소 명목금액 | $5 USDT | 거래소 제약 |
 
 **반대 시그널 재진입:** 보유 포지션과 반대 방향 신호 발생 시 기존 포지션을 즉시 청산하고, ML 필터 통과 시 반대 방향으로 재진입합니다. 재진입 중 User Data Stream 콜백이 신규 포지션 상태를 덮어쓰지 않도록 `_is_reentering` 플래그로 보호합니다.
 
@@ -520,12 +526,13 @@ if onnx_changed or lgbm_changed:
 ```
 [매주 일요일 크론탭]
 
-[1/6] 데이터 수집 (fetch_history.py × 심볼 수, 최근 35일 Upsert)
-[2/6] Walk-Forward 백테스트 (심볼별 → 합산 PF/승률/MDD)
-[3/6] 운영 대시보드 API 조회 (GET /api/trades + GET /api/stats → 실전 거래 통계)
-[4/6] 추이 분석 (이전 리포트에서 PF/승률/MDD 추이 로드)
-[5/6] ML 재학습 체크 (누적 트레이드 ≥ 150, PF < 1.0, PF 3주 하락 → 2/3 충족 시 권장)
-[6/6] PF < 1.0이면 파라미터 스윕 실행 → 상위 3개 대안 제시
+[1/7] 데이터 수집 (fetch_history.py × 심볼 수, 최근 35일 Upsert)
+[2/7] Walk-Forward 백테스트 (심볼별 → 합산 PF/승률/MDD)
+[3/7] 운영 대시보드 API 조회 (GET /api/trades + GET /api/stats → 실전 거래 통계)
+[4/7] 추이 분석 (이전 리포트에서 PF/승률/MDD 추이 로드)
+[5/7] 킬스위치 모니터링 (심볼별 연속 손실/15거래 PF → 2단계 경고 출력)
+[6/7] ML 재학습 체크 (누적 트레이드 ≥ 150, PF < 1.0, PF 3주 하락 → 2/3 충족 시 권장)
+[7/7] PF < 1.0이면 파라미터 스윕 실행 → 상위 3개 대안 제시
 
 → Discord 알림 + results/weekly/report_YYYY-MM-DD.json 저장
 ```
@@ -638,6 +645,9 @@ sequenceDiagram
     BOT->>NT: notify_close(TP, exit=2.4150, est=+7.00, net=+6.78, diff=-0.22)
     NT->>NT: Discord 웹훅 전송
 
+    BOT->>BOT: _append_trade(net_pnl, "TP") [JSONL 파일에 기록]
+    BOT->>BOT: _check_kill_switch() [8연패/PF<0.75 검사]
+
     BOT->>BOT: current_trade_side = None
     BOT->>BOT: _entry_price = None
     BOT->>BOT: _entry_quantity = None
@@ -720,7 +730,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | 파일 | 레이어 | 역할 |
 |------|--------|------|
 | `main.py` | — | 진입점. 심볼별 `TradingBot` 생성 + 공유 `RiskManager` + `asyncio.gather()` |
-| `src/bot.py` | 오케스트레이터 | 심볼별 독립 트레이딩 루프 |
+| `src/bot.py` | 오케스트레이터 | 심볼별 독립 트레이딩 루프 + 듀얼 레이어 킬스위치 |
 | `src/config.py` | — | 환경변수 기반 설정 (`symbols` 리스트, `correlation_symbols`, 심볼별 `SymbolStrategyParams`) |
 | `src/data_stream.py` | Data | Combined WebSocket 캔들 수신·버퍼 관리 |
 | `src/indicators.py` | Signal | 기술 지표 계산 및 복합 신호 생성 |
@@ -742,6 +752,8 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `scripts/train_and_deploy.sh` | MLOps | 전체 파이프라인 (수집 → 학습 → 배포) |
 | `scripts/deploy_model.sh` | MLOps | 모델 파일 운영 서버 전송 |
 | `scripts/strategy_sweep.py` | MLOps | 전략 파라미터 그리드 스윕 (324개 조합) |
-| `scripts/weekly_report.py` | MLOps | 주간 전략 리포트 (백테스트+대시보드API+추이+스윕+Discord) |
+| `scripts/weekly_report.py` | MLOps | 주간 전략 리포트 (백테스트+킬스위치+대시보드API+추이+스윕+Discord) |
+| `scripts/compare_symbols.py` | MLOps | 종목 비교 백테스트 (심볼별 파라미터 sweep) |
+| `scripts/position_sizing_analysis.py` | MLOps | Robust Monte Carlo 포지션 사이징 분석 |
 | `scripts/run_backtest.py` | MLOps | 단일 백테스트 CLI |
 | `models/{symbol}/active_lgbm_params.json` | MLOps | 심볼별 승인된 LightGBM 파라미터 |

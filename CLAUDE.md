@@ -65,6 +65,8 @@ bash scripts/deploy_model.sh --symbol XRPUSDT
 4. `src/exchange.py` + `src/risk_manager.py` — Dynamic margin, MARKET orders with SL/TP, daily loss limit (5%), same-direction limit
 5. `src/user_data_stream.py` + `src/notifier.py` — Real-time TP/SL detection via WebSocket, Discord webhooks
 
+**Dual-layer kill switch** (per-symbol, in `src/bot.py`): Fast Kill (8 consecutive net losses) + Slow Kill (last 15 trades PF < 0.75). Trade history persisted to `data/trade_history/{symbol}.jsonl`. Blocks new entries only; existing SL/TP exits work normally. Manual reset via `RESET_KILL_SWITCH_{SYMBOL}=True` env var + restart.
+
 **Parallel execution**: Per-symbol bots run independently via `asyncio.gather()`. Each bot's `user_data_stream` also runs in parallel.
 
 **Model/data directories**: `models/{symbol}/` and `data/{symbol}/` for per-symbol models. Falls back to `models/` root if symbol dir doesn't exist.
