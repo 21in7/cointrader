@@ -23,6 +23,7 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Seoul
+      - PYTHONUNBUFFERED=1
       - LOG_DIR=/app/logs
       - DB_PATH=/app/data/dashboard.db
       - POLL_INTERVAL=5

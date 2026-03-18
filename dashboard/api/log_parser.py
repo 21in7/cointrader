@@ -479,6 +479,7 @@ class LogParser:
 
         if not open_trades:
             print(f"[LogParser] 경고: {symbol} 청산 감지했으나 열린 포지션 없음")
+            self._current_positions.pop(symbol, None)
             return
 
         primary_id = open_trades[0]["id"]

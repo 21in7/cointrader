@@ -6,7 +6,7 @@ echo "LOG_DIR=${LOG_DIR:-/app/logs}"
 echo "DB_PATH=${DB_PATH:-/app/data/dashboard.db}"
 
 # 로그 파서를 백그라운드로 실행
-python log_parser.py &
+python -u log_parser.py &
 PARSER_PID=$!
 echo "Log parser started (PID: $PARSER_PID)"
 
