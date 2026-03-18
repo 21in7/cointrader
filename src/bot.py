@@ -23,6 +23,34 @@ _SLOW_KILL_PF_THRESHOLD = 0.75  # PF < 이 값이면 중단
 _TRADE_HISTORY_DIR = Path("data/trade_history")
 
 
+def _tail_lines(path: Path, n: int) -> list[str]:
+    """파일 끝에서 최대 n줄을 효율적으로 읽는다 (전체 파일 로드 없이)."""
+    with open(path, "rb") as f:
+        f.seek(0, 2)  # EOF
+        fsize = f.tell()
+        if fsize == 0:
+            return []
+        # 뒤에서부터 청크 단위로 읽기
+        chunk_size = min(4096, fsize)
+        lines: list[str] = []
+        pos = fsize
+        remaining = b""
+        while pos > 0 and len(lines) < n + 1:
+            read_size = min(chunk_size, pos)
+            pos -= read_size
+            f.seek(pos)
+            chunk = f.read(read_size) + remaining
+            remaining = b""
+            split = chunk.split(b"\n")
+            # 첫 조각은 이전 청크와 이어질 수 있으므로 따로 보관
+            remaining = split[0]
+            lines = [s.decode() for s in split[1:] if s.strip()] + lines
+        # 남은 조각 처리
+        if remaining.strip():
+            lines = [remaining.decode()] + lines
+        return lines[-n:]
+
+
 class TradingBot:
     def __init__(self, config: Config, symbol: str = None, risk: RiskManager = None):
         self.config = config
@@ -68,17 +96,19 @@ class TradingBot:
         return _TRADE_HISTORY_DIR / f"{self.symbol.lower()}.jsonl"
 
     def _restore_trade_history(self) -> None:
-        """부팅 시 파일에서 거래 이력을 복원한다."""
+        """부팅 시 파일 마지막 N줄만 읽어 거래 이력을 복원한다.
+        킬스위치 판단에 필요한 최대 윈도우(_SLOW_KILL_WINDOW)만큼만 유지."""
         path = self._trade_history_path()
         if not path.exists():
             return
         try:
-            with open(path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        self._trade_history.append(json.loads(line))
-            logger.info(f"[{self.symbol}] 거래 이력 복원: {len(self._trade_history)}건")
+            tail_n = max(_FAST_KILL_STREAK, _SLOW_KILL_WINDOW)
+            lines = _tail_lines(path, tail_n)
+            for line in lines:
+                line = line.strip()
+                if line:
+                    self._trade_history.append(json.loads(line))
+            logger.info(f"[{self.symbol}] 거래 이력 복원: {len(self._trade_history)}건 (최근 {tail_n}건)")
         except Exception as e:
             logger.warning(f"[{self.symbol}] 거래 이력 복원 실패: {e}")
 
@@ -101,6 +131,10 @@ class TradingBot:
             "ts": datetime.now(timezone.utc).isoformat(),
         }
         self._trade_history.append(record)
+        # 메모리에는 킬스위치 윈도우만큼만 유지
+        max_window = max(_FAST_KILL_STREAK, _SLOW_KILL_WINDOW)
+        if len(self._trade_history) > max_window * 2:
+            self._trade_history = self._trade_history[-max_window:]
         # 파일에 append (JSONL)
         try:
             _TRADE_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
