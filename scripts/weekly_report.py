@@ -198,6 +198,60 @@ def run_degradation_sweep(
     return results[:top_n]
 
 
+# ── 킬스위치 모니터링 ──────────────────────────────────────────────
+_KILL_HISTORY_DIR = Path("data/trade_history")
+_FAST_KILL_STREAK = 8
+_SLOW_KILL_WINDOW = 15
+_SLOW_KILL_PF_THRESHOLD = 0.75
+
+
+def load_kill_switch_status(symbols: list[str]) -> dict[str, dict]:
+    """심볼별 킬스위치 지표를 거래 이력 파일에서 산출한다."""
+    result = {}
+    for sym in symbols:
+        path = _KILL_HISTORY_DIR / f"{sym.lower()}.jsonl"
+        trades: list[dict] = []
+        if path.exists():
+            try:
+                with open(path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            trades.append(json.loads(line))
+            except Exception:
+                pass
+
+        # 현재 연속 손실 카운트 (뒤에서부터)
+        consec_loss = 0
+        for t in reversed(trades):
+            if t.get("net_pnl", 0) < 0:
+                consec_loss += 1
+            else:
+                break
+
+        # 최근 15거래 PF
+        recent_pf = None
+        if len(trades) >= _SLOW_KILL_WINDOW:
+            recent = trades[-_SLOW_KILL_WINDOW:]
+            gp = sum(t["net_pnl"] for t in recent if t["net_pnl"] > 0)
+            gl = abs(sum(t["net_pnl"] for t in recent if t["net_pnl"] < 0))
+            recent_pf = round(gp / gl, 2) if gl > 0 else float("inf")
+
+        # 킬 상태 판정
+        killed = (
+            consec_loss >= _FAST_KILL_STREAK
+            or (recent_pf is not None and recent_pf < _SLOW_KILL_PF_THRESHOLD)
+        )
+
+        result[sym] = {
+            "total_trades": len(trades),
+            "consec_loss": consec_loss,
+            "recent_pf": recent_pf,
+            "killed": killed,
+        }
+    return result
+
+
 # ── Discord 리포트 포맷 & 전송 ─────────────────────────────────────
 
 _EMOJI_CHART = "\U0001F4CA"
@@ -259,6 +313,27 @@ def format_report(data: dict) -> str:
         if trend["mdd"]:
             mdd_trend = f" {_ARROW} ".join(f"{v:.0f}%" for v in trend["mdd"])
             lines.append(f"  MDD: {mdd_trend}")
+
+    # 킬스위치 모니터링
+    ks = data.get("kill_switch", {})
+    if ks:
+        lines += ["", "[킬스위치 모니터링]"]
+        for sym, status in ks.items():
+            short = sym.replace("USDT", "")
+            cl = status["consec_loss"]
+            # 연속 손실 경고: 6회 이상이면 ⚠
+            cl_warn = f" {_WARN}" if cl >= 6 else ""
+            cl_str = f"연속손실 {cl}/{_FAST_KILL_STREAK}{cl_warn}"
+            # PF 표시
+            rpf = status["recent_pf"]
+            if rpf is not None:
+                pf_str = f"{_SLOW_KILL_WINDOW}거래PF {rpf:.2f}"
+            else:
+                n = status["total_trades"]
+                pf_str = f"{_SLOW_KILL_WINDOW}거래PF -.-- ({n}건)"
+            # KILLED 표시
+            kill_tag = " \U0001F534 KILLED" if status["killed"] else ""
+            lines.append(f"  {short}:  {cl_str} | {pf_str}{kill_tag}")
 
     # ML 재도전 체크리스트
     ml = data["ml_trigger"]
@@ -478,7 +553,10 @@ def generate_report(
         pf_declining_3w=trend["pf_declining_3w"],
     )
 
-    # 6) PF < 1.0이면 스윕 실행
+    # 6) 킬스위치 모니터링
+    kill_switch = load_kill_switch_status(symbols)
+
+    # 7) PF < 1.0이면 스윕 실행
     sweep = None
     if current_pf < 1.0:
         logger.info("PF < 1.0 — 파라미터 스윕 실행 중...")
@@ -489,6 +567,7 @@ def generate_report(
         "backtest": {"summary": backtest_summary, "per_symbol": bt_results, "trades": all_bt_trades},
         "live_trades": live_summary,
         "trend": trend,
+        "kill_switch": kill_switch,
         "ml_trigger": ml_trigger,
         "sweep": sweep,
     }
