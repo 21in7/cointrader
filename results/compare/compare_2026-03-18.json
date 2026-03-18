@@ -1,0 +1,86 @@
+[
+  {
+    "symbol": "SOLUSDT",
+    "best_params": {
+      "atr_sl_mult": 1.0,
+      "atr_tp_mult": 4.0,
+      "signal_threshold": 3,
+      "adx_threshold": 20,
+      "volume_multiplier": 2.5
+    },
+    "summary": {
+      "total_trades": 31,
+      "total_pnl": 909.294,
+      "return_pct": 90.93,
+      "win_rate": 38.71,
+      "avg_win": 117.2904,
+      "avg_loss": -26.2206,
+      "payoff_ratio": 4.47,
+      "max_consecutive_losses": 6,
+      "profit_factor": 2.83,
+      "max_drawdown_pct": 10.87,
+      "sharpe_ratio": 57.43,
+      "total_fees": 117.2484,
+      "close_reasons": {
+        "TAKE_PROFIT": 12,
+        "STOP_LOSS": 19
+      }
+    }
+  },
+  {
+    "symbol": "LINKUSDT",
+    "best_params": {
+      "atr_sl_mult": 2.0,
+      "atr_tp_mult": 3.0,
+      "signal_threshold": 3,
+      "adx_threshold": 0,
+      "volume_multiplier": 2.5
+    },
+    "summary": {
+      "total_trades": 38,
+      "total_pnl": 12.3248,
+      "return_pct": 1.23,
+      "win_rate": 39.47,
+      "avg_win": 88.1543,
+      "avg_loss": -56.9561,
+      "payoff_ratio": 1.55,
+      "max_consecutive_losses": 5,
+      "profit_factor": 1.01,
+      "max_drawdown_pct": 24.28,
+      "sharpe_ratio": 0.67,
+      "total_fees": 142.4705,
+      "close_reasons": {
+        "TAKE_PROFIT": 15,
+        "STOP_LOSS": 23
+      }
+    }
+  },
+  {
+    "symbol": "AVAXUSDT",
+    "best_params": {
+      "atr_sl_mult": 1.5,
+      "atr_tp_mult": 3.0,
+      "signal_threshold": 3,
+      "adx_threshold": 25,
+      "volume_multiplier": 2.5
+    },
+    "summary": {
+      "total_trades": 20,
+      "total_pnl": 497.5511,
+      "return_pct": 49.76,
+      "win_rate": 55.0,
+      "avg_win": 90.6485,
+      "avg_loss": -55.5092,
+      "payoff_ratio": 1.63,
+      "max_consecutive_losses": 3,
+      "profit_factor": 2.0,
+      "max_drawdown_pct": 8.89,
+      "sharpe_ratio": 47.39,
+      "total_fees": 76.184,
+      "close_reasons": {
+        "STOP_LOSS": 9,
+        "TAKE_PROFIT": 11
+      }
+    }
+  }
+]

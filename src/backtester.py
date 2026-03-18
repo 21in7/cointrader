@@ -562,6 +562,21 @@ class Backtester:
         else:
             sharpe = 0.0
 
+        # 손익비 (avg_win / |avg_loss|)
+        avg_w = float(np.mean(wins)) if wins else 0.0
+        avg_l = float(np.mean(losses)) if losses else 0.0
+        payoff_ratio = round(avg_w / abs(avg_l), 2) if avg_l != 0 else float("inf")
+
+        # 최대 연속 손실 횟수
+        max_consec_loss = 0
+        cur_streak = 0
+        for p in pnls:
+            if p <= 0:
+                cur_streak += 1
+                max_consec_loss = max(max_consec_loss, cur_streak)
+            else:
+                cur_streak = 0
+
         # 청산 사유별 비율
         reasons = {}
         for t in self.trades:
@@ -573,8 +588,10 @@ class Backtester:
             "total_pnl": round(total_pnl, 4),
             "return_pct": round(total_pnl / self.cfg.initial_balance * 100, 2),
             "win_rate": round(len(wins) / len(self.trades) * 100, 2) if self.trades else 0.0,
-            "avg_win": round(np.mean(wins), 4) if wins else 0.0,
-            "avg_loss": round(np.mean(losses), 4) if losses else 0.0,
+            "avg_win": round(avg_w, 4),
+            "avg_loss": round(avg_l, 4),
+            "payoff_ratio": payoff_ratio,
+            "max_consecutive_losses": max_consec_loss,
             "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else float("inf"),
             "max_drawdown_pct": round(mdd, 2),
             "sharpe_ratio": round(sharpe, 2),
@@ -797,6 +814,7 @@ class WalkForwardBacktester:
         if not all_trades:
             summary = {"total_trades": 0, "total_pnl": 0.0, "return_pct": 0.0,
                        "win_rate": 0.0, "avg_win": 0.0, "avg_loss": 0.0,
+                       "payoff_ratio": 0.0, "max_consecutive_losses": 0,
                        "profit_factor": 0.0, "max_drawdown_pct": 0.0,
                        "sharpe_ratio": 0.0, "total_fees": 0.0, "close_reasons": {}}
         else:
@@ -820,6 +838,21 @@ class WalkForwardBacktester:
             else:
                 sharpe = 0.0
 
+            # 손익비 (avg_win / |avg_loss|)
+            avg_w = float(np.mean(wins)) if wins else 0.0
+            avg_l = float(np.mean(losses)) if losses else 0.0
+            payoff_ratio = round(avg_w / abs(avg_l), 2) if avg_l != 0 else float("inf")
+
+            # 최대 연속 손실 횟수
+            max_consec_loss = 0
+            cur_streak = 0
+            for p in pnls:
+                if p <= 0:
+                    cur_streak += 1
+                    max_consec_loss = max(max_consec_loss, cur_streak)
+                else:
+                    cur_streak = 0
+
             reasons = {}
             for t in all_trades:
                 r = t["close_reason"]
@@ -830,8 +863,10 @@ class WalkForwardBacktester:
                 "total_pnl": round(total_pnl, 4),
                 "return_pct": round(total_pnl / self.cfg.initial_balance * 100, 2),
                 "win_rate": round(len(wins) / len(all_trades) * 100, 2),
-                "avg_win": round(np.mean(wins), 4) if wins else 0.0,
-                "avg_loss": round(np.mean(losses), 4) if losses else 0.0,
+                "avg_win": round(avg_w, 4),
+                "avg_loss": round(avg_l, 4),
+                "payoff_ratio": payoff_ratio,
+                "max_consecutive_losses": max_consec_loss,
                 "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else float("inf"),
                 "max_drawdown_pct": round(mdd, 2),
                 "sharpe_ratio": round(sharpe, 2),
