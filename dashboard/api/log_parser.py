@@ -428,7 +428,11 @@ class LogParser:
                       leverage=None, sl=None, tp=None, is_recovery=False,
                       rsi=None, macd_hist=None, atr=None):
         if leverage is None:
-            leverage = 10
+            row = self.conn.execute(
+                "SELECT value FROM bot_status WHERE key=?",
+                (f"{symbol}:leverage",),
+            ).fetchone()
+            leverage = int(row["value"]) if row else 10
 
         # 중복 체크 — 같은 심볼+방향의 OPEN 포지션이 이미 있으면 스킵
         current = self._current_positions.get(symbol)
