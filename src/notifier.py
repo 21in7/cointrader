@@ -17,7 +17,10 @@ class DiscordNotifier:
             return
         try:
             loop = asyncio.get_running_loop()
-            loop.run_in_executor(None, self._send_sync, content)
+            fut = loop.run_in_executor(None, self._send_sync, content)
+            fut.add_done_callback(
+                lambda f: f.exception() and logger.warning(f"Discord 전송 실패: {f.exception()}")
+            )
         except RuntimeError:
             self._send_sync(content)
 

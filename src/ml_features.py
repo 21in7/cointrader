@@ -320,7 +320,16 @@ def build_features_aligned(
     else:
         base["oi_change_ma5"] = np.nan
 
-    base["oi_price_spread"] = float(oi_price_spread) if oi_price_spread is not None else np.nan
+    # oi_price_spread = oi_z - ret_1_z (학습과 동일하게 z-score 적용된 값의 차이)
+    if oi_history and len(oi_history) >= 2 and oi_price_spread is not None:
+        oi_z = base.get("oi_change", np.nan)
+        ret_1_z = base.get("ret_1", 0.0)
+        if not np.isnan(oi_z):
+            base["oi_price_spread"] = oi_z - ret_1_z
+        else:
+            base["oi_price_spread"] = np.nan
+    else:
+        base["oi_price_spread"] = np.nan
     base["adx"] = adx_z
 
     return pd.Series(base)

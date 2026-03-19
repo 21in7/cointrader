@@ -6,13 +6,19 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 
+import joblib
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from loguru import logger
+
+# 크립토 24/7 시장: 15분봉 × 96봉/일 × 365일 = 35,040
+_ANNUALIZE_FACTOR = 35_040
 
 
 def _calc_trade_stats(trades: list[dict], initial_balance: float) -> dict:
@@ -43,7 +49,7 @@ def _calc_trade_stats(trades: list[dict], initial_balance: float) -> dict:
 
     if len(pnls) > 1:
         pnl_arr = np.array(pnls)
-        sharpe = float(np.mean(pnl_arr) / np.std(pnl_arr) * np.sqrt(24192)) if np.std(pnl_arr) > 0 else 0.0
+        sharpe = float(np.mean(pnl_arr) / np.std(pnl_arr) * np.sqrt(_ANNUALIZE_FACTOR)) if np.std(pnl_arr) > 0 else 0.0
     else:
         sharpe = 0.0
 
@@ -80,11 +86,6 @@ def _calc_trade_stats(trades: list[dict], initial_balance: float) -> dict:
         "total_fees": round(total_fees, 4),
         "close_reasons": reasons,
     }
-
-import warnings
-
-import joblib
-import lightgbm as lgb
 
 from src.dataset_builder import (
     _calc_indicators, _calc_signals, _calc_features_vectorized,

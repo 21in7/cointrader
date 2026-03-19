@@ -530,6 +530,7 @@ class TradingBot:
                         self.current_trade_side = None
                         self._entry_price = None
                         self._entry_quantity = None
+                        self._close_event.set()
                         self._close_handled_by_sync = False
                         continue
                 except Exception as e:
