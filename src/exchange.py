@@ -145,6 +145,14 @@ class BinanceFuturesClient:
                 return p
         return None
 
+    async def get_open_orders(self) -> list[dict]:
+        """현재 심볼의 오픈 주문 목록을 조회한다."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.client.futures_get_open_orders(symbol=self.symbol),
+        )
+
     async def cancel_all_orders(self):
         """오픈 주문을 모두 취소한다."""
         loop = asyncio.get_running_loop()

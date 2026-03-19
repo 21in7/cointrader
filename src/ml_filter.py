@@ -139,6 +139,7 @@ class MLFilter:
             if self._onnx_session is not None:
                 input_name = self._onnx_session.get_inputs()[0].name
                 X = features[FEATURE_COLS].values.astype(np.float32).reshape(1, -1)
+                X = np.nan_to_num(X, nan=0.0)
                 proba = float(self._onnx_session.run(None, {input_name: X})[0][0])
             else:
                 available = [c for c in FEATURE_COLS if c in features.index]

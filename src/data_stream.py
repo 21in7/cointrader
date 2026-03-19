@@ -10,8 +10,10 @@ from loguru import logger
 _MIN_CANDLES_FOR_SIGNAL = 100
 
 # 초기 구동 시 REST API로 가져올 과거 캔들 수.
-# 15분봉 200개 = 50시간치 — EMA50(12.5h) 대비 4배 여유.
-_PRELOAD_LIMIT = 200
+# z-score 윈도우(288) + EMA50(50) 안정화 여유분. 15분봉 300개 = 75시간.
+_PRELOAD_LIMIT = 300
+
+_RECONNECT_DELAY = 5  # WebSocket 재연결 대기 초
 
 
 
@@ -105,7 +107,7 @@ class MultiSymbolStream:
         self,
         symbols: list[str],
         interval: str = "15m",
-        buffer_size: int = 200,
+        buffer_size: int = 300,
         on_candle: Callable = None,
     ):
         self.symbols = [s.lower() for s in symbols]
@@ -199,9 +201,34 @@ class MultiSymbolStream:
         ]
         logger.info(f"Combined WebSocket 시작: {streams}")
         try:
-            async with bm.futures_multiplex_socket(streams) as stream:
-                while True:
-                    msg = await stream.recv()
-                    await self.handle_message(msg)
+            await self._run_loop(bm, streams)
         finally:
             await client.close_connection()
+
+    async def _run_loop(self, bm: BinanceSocketManager, streams: list[str]) -> None:
+        """WebSocket 연결 → 재연결 무한 루프."""
+        while True:
+            try:
+                async with bm.futures_multiplex_socket(streams) as stream:
+                    logger.info("Kline WebSocket 연결 완료")
+                    while True:
+                        msg = await stream.recv()
+
+                        if isinstance(msg, dict) and msg.get("e") == "error":
+                            logger.warning(
+                                f"Kline WebSocket 에러 수신: {msg.get('m', msg)} — 재연결"
+                            )
+                            break
+
+                        await self.handle_message(msg)
+
+            except asyncio.CancelledError:
+                logger.info("Kline WebSocket 정상 종료")
+                raise
+
+            except Exception as e:
+                logger.warning(
+                    f"Kline WebSocket 끊김: {e} — "
+                    f"{_RECONNECT_DELAY}초 후 재연결"
+                )
+                await asyncio.sleep(_RECONNECT_DELAY)
