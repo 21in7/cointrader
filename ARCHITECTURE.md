@@ -331,9 +331,12 @@ ML 필터를 통과한 신호를 실제 주문으로 변환하고, 리스크 한
 ```
 1. set_leverage(10x)
 2. place_order(MARKET)              ← 진입
-3. place_order(STOP_MARKET)         ← SL 설정
-4. place_order(TAKE_PROFIT_MARKET)  ← TP 설정
+3. place_order(STOP_MARKET)         ← SL 설정 (3회 재시도)
+4. place_order(TAKE_PROFIT_MARKET)  ← TP 설정 (3회 재시도)
+※ SL/TP 최종 실패 시 → 긴급 시장가 청산 + Discord 알림
 ```
+
+**SL/TP 원자성 보장:** SL/TP 배치는 `_place_sl_tp_with_retry()`로 3회 재시도합니다. 개별 추적(SL 성공 후 TP만 재시도)하여 불필요한 중복 주문을 방지합니다. 모든 재시도 실패 시 `_emergency_close()`가 포지션을 즉시 시장가 청산하고 Discord로 긴급 알림을 전송합니다.
 
 **리스크 제어:**
 
@@ -350,6 +353,8 @@ ML 필터를 통과한 신호를 실제 주문으로 변환하고, 리스크 한
 **반대 시그널 재진입:** 보유 포지션과 반대 방향 신호 발생 시 기존 포지션을 즉시 청산하고, ML 필터 통과 시 반대 방향으로 재진입합니다. 재진입 중 User Data Stream 콜백이 신규 포지션 상태를 덮어쓰지 않도록 `_is_reentering` 플래그로 보호합니다.
 
 **마진 균등 배분:** 멀티심볼 모드에서 각 봇은 전체 잔고를 심볼 수로 나눈 금액만큼만 사용합니다 (`balance / len(symbols)`). 공유 `RiskManager`의 `asyncio.Lock`으로 동시 포지션 등록/해제 시 경합 조건을 방지합니다.
+
+**Graceful Shutdown:** `main.py`에서 `SIGTERM`/`SIGINT` 시그널을 수신하면 `_graceful_shutdown()`이 실행됩니다. 각 봇의 오픈 주문을 심볼별로 취소(5초 타임아웃)한 후 모든 asyncio 태스크를 정리합니다. Docker `docker stop` 또는 `kill` 시 고아 주문이 거래소에 남지 않습니다.
 
 ---
 
@@ -659,6 +664,7 @@ sequenceDiagram
 - 체결 즉시 감지 (폴링 방식의 최대 15분 지연 해소)
 - `realized_pnl - commission` = 정확한 순수익 (슬리피지·수수료 포함)
 - `_is_reentering` 플래그: 반대 시그널 재진입 중에는 콜백이 신규 포지션 상태를 초기화하지 않음
+- `_close_lock`: 콜백(`_on_position_closed`)과 포지션 모니터(`_position_monitor` SYNC 경로) 간 PnL 이중기록 방지. asyncio await 포인트 사이 경쟁 조건을 Lock으로 원자화
 
 ---
 
@@ -729,7 +735,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 
 | 파일 | 레이어 | 역할 |
 |------|--------|------|
-| `main.py` | — | 진입점. 심볼별 `TradingBot` 생성 + 공유 `RiskManager` + `asyncio.gather()` |
+| `main.py` | — | 진입점. 심볼별 `TradingBot` 생성 + 공유 `RiskManager` + `asyncio.gather()` + SIGTERM/SIGINT graceful shutdown |
 | `src/bot.py` | 오케스트레이터 | 심볼별 독립 트레이딩 루프 + 듀얼 레이어 킬스위치 |
 | `src/config.py` | — | 환경변수 기반 설정 (`symbols` 리스트, `correlation_symbols`, 심볼별 `SymbolStrategyParams`) |
 | `src/data_stream.py` | Data | Combined WebSocket 캔들 수신·버퍼 관리 |

@@ -16,8 +16,10 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 ML 필터(LightGBM / M
 - **반대 시그널 재진입**: 보유 포지션과 반대 신호 발생 시 즉시 청산 후 재진입
 - **리스크 관리**: 동일 방향 포지션 제한, 일일 손실 한도(5%), 동적 증거금 비율
 - **듀얼 레이어 킬스위치**: Fast Kill(8연속 순손실) + Slow Kill(15거래 PF<0.75) — 심볼별 독립 차단, 기존 포지션 청산은 정상 작동
+- **SL/TP 원자성 보장**: SL/TP 배치 3회 재시도 + 최종 실패 시 긴급 시장가 청산
 - **실시간 TP/SL 감지**: Binance User Data Stream으로 즉시 감지
-- **Discord 알림**: 진입·청산·킬스위치 발동·오류 이벤트 실시간 웹훅 알림
+- **Graceful Shutdown**: SIGTERM/SIGINT 시 심볼별 오픈 주문 취소 후 정상 종료
+- **Discord 알림**: 진입·청산·킬스위치 발동·긴급 청산·오류 이벤트 실시간 웹훅 알림
 - **모니터링 대시보드**: 거래 내역, 수익 통계, 차트를 웹에서 조회
 - **주간 전략 리포트**: 자동 성능 측정, 추이 추적, 킬스위치 모니터링, ML 재학습 시점 판단
 - **종목 비교 분석**: 심볼별 파라미터 sweep + Robust Monte Carlo 포지션 사이징
@@ -82,9 +84,11 @@ python main.py
 봇이 정상 실행되면 다음과 같은 로그가 출력됩니다:
 
 ```
-INFO | 봇 시작: XRPUSDT (레버리지 10x)
-INFO | 과거 캔들 200개 프리로드 완료
-INFO | WebSocket 연결 완료
+INFO | 기준 잔고 설정: 1000.00 USDT
+INFO | [XRPUSDT] 봇 시작, 레버리지 10x | SL=2.0x TP=2.0x Signal≥3 ADX≥25.0 Vol≥2.5x
+INFO | [XRPUSDT] 기존 포지션 없음 - 신규 진입 대기
+INFO | [XRPUSDT] OI 히스토리 초기화: 5개
+INFO | Kline WebSocket 연결 완료
 ```
 
 Discord 웹훅을 설정했다면 진입/청산 시 실시간 알림을 받게 됩니다.
