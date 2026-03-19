@@ -77,6 +77,7 @@ class TradingBot:
         self._entry_quantity: float | None = None
         self._is_reentering: bool = False  # _close_and_reenter 중 콜백 상태 초기화 방지
         self._close_event = asyncio.Event()  # 콜백 청산 완료 대기용
+        self._close_lock = asyncio.Lock()  # 청산 처리 원자성 보장 (C3 fix)
         self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
         self._oi_history: deque = deque(maxlen=96)  # z-score 윈도우(96=1일분 15분봉)
         self._funding_history: deque = deque(maxlen=96)
@@ -459,20 +460,80 @@ class TradingBot:
         )
 
         sl_side = "SELL" if signal == "LONG" else "BUY"
-        await self.exchange.place_order(
-            side=sl_side,
-            quantity=quantity,
-            order_type="STOP_MARKET",
-            stop_price=self.exchange._round_price(stop_loss),
-            reduce_only=True,
-        )
-        await self.exchange.place_order(
-            side=sl_side,
-            quantity=quantity,
-            order_type="TAKE_PROFIT_MARKET",
-            stop_price=self.exchange._round_price(take_profit),
-            reduce_only=True,
-        )
+        try:
+            await self._place_sl_tp_with_retry(
+                sl_side, quantity, stop_loss, take_profit
+            )
+        except Exception as e:
+            logger.error(
+                f"[{self.symbol}] SL/TP 배치 최종 실패 — 긴급 청산: {e}"
+            )
+            await self._emergency_close(side, quantity)
+
+    _SL_TP_MAX_RETRIES = 3
+
+    async def _place_sl_tp_with_retry(
+        self, sl_side: str, quantity: float, stop_loss: float, take_profit: float
+    ) -> None:
+        """SL/TP 주문을 재시도 로직과 함께 배치한다. 최종 실패 시 예외를 raise."""
+        sl_placed = False
+        tp_placed = False
+        last_error = None
+
+        for attempt in range(1, self._SL_TP_MAX_RETRIES + 1):
+            try:
+                if not sl_placed:
+                    await self.exchange.place_order(
+                        side=sl_side,
+                        quantity=quantity,
+                        order_type="STOP_MARKET",
+                        stop_price=self.exchange._round_price(stop_loss),
+                        reduce_only=True,
+                    )
+                    sl_placed = True
+                if not tp_placed:
+                    await self.exchange.place_order(
+                        side=sl_side,
+                        quantity=quantity,
+                        order_type="TAKE_PROFIT_MARKET",
+                        stop_price=self.exchange._round_price(take_profit),
+                        reduce_only=True,
+                    )
+                    tp_placed = True
+                return  # 둘 다 성공
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"[{self.symbol}] SL/TP 배치 실패 (시도 {attempt}/{self._SL_TP_MAX_RETRIES}): {e}"
+                )
+                if attempt < self._SL_TP_MAX_RETRIES:
+                    await asyncio.sleep(1)
+
+        raise last_error  # 모든 재시도 실패
+
+    async def _emergency_close(self, entry_side: str, quantity: float) -> None:
+        """SL/TP 배치 실패 시 포지션을 긴급 시장가 청산한다."""
+        try:
+            close_side = "SELL" if entry_side == "BUY" else "BUY"
+            await self.exchange.cancel_all_orders()
+            await self.exchange.place_order(
+                side=close_side, quantity=quantity, reduce_only=True
+            )
+            await self.risk.close_position(self.symbol, 0.0)
+            self.current_trade_side = None
+            self._entry_price = None
+            self._entry_quantity = None
+            self.notifier.notify_info(
+                f"🚨 [{self.symbol}] SL/TP 배치 실패 → 긴급 청산 완료"
+            )
+            logger.warning(f"[{self.symbol}] 긴급 청산 완료")
+        except Exception as e:
+            logger.critical(
+                f"[{self.symbol}] 긴급 청산마저 실패! 수동 개입 필요: {e}"
+            )
+            self.notifier.notify_info(
+                f"🔴 [{self.symbol}] 긴급 청산 실패! 수동 청산 필요: {e}"
+            )
 
     def _calc_estimated_pnl(self, exit_price: float) -> float:
         """진입가·수량 기반 예상 PnL 계산 (수수료 미반영)."""
@@ -489,47 +550,48 @@ class TradingBot:
         exit_price: float,
     ) -> None:
         """User Data Stream에서 청산 감지 시 호출되는 콜백."""
-        # 이미 Flat 상태면 중복 처리 방지 (SYNC 또는 process_candle에서 먼저 처리됨)
-        if self.current_trade_side is None and not self._is_reentering:
-            logger.debug(f"[{self.symbol}] 이미 Flat 상태 — 콜백 건너뜀")
+        async with self._close_lock:
+            # 이미 Flat 상태면 중복 처리 방지 (SYNC 또는 process_candle에서 먼저 처리됨)
+            if self.current_trade_side is None and not self._is_reentering:
+                logger.debug(f"[{self.symbol}] 이미 Flat 상태 — 콜백 건너뜀")
+                self._close_event.set()
+                return
+
+            estimated_pnl = self._calc_estimated_pnl(exit_price)
+            diff = net_pnl - estimated_pnl
+
+            await self.risk.close_position(self.symbol, net_pnl)
+
+            self.notifier.notify_close(
+                symbol=self.symbol,
+                side=self.current_trade_side or "UNKNOWN",
+                close_reason=close_reason,
+                exit_price=exit_price,
+                estimated_pnl=estimated_pnl,
+                net_pnl=net_pnl,
+                diff=diff,
+            )
+
+            logger.success(
+                f"[{self.symbol}] 포지션 청산({close_reason}): 예상={estimated_pnl:+.4f}, "
+                f"순수익={net_pnl:+.4f}, 차이={diff:+.4f} USDT"
+            )
+
+            # 거래 기록 저장 + 킬스위치 검사 (청산 후 항상 수행)
+            self._append_trade(net_pnl, close_reason)
+            self._check_kill_switch()
+
+            # _close_and_reenter 대기 해제
             self._close_event.set()
-            return
 
-        estimated_pnl = self._calc_estimated_pnl(exit_price)
-        diff = net_pnl - estimated_pnl
+            # _close_and_reenter 중이면 신규 포지션 상태를 덮어쓰지 않는다
+            if self._is_reentering:
+                return
 
-        await self.risk.close_position(self.symbol, net_pnl)
-
-        self.notifier.notify_close(
-            symbol=self.symbol,
-            side=self.current_trade_side or "UNKNOWN",
-            close_reason=close_reason,
-            exit_price=exit_price,
-            estimated_pnl=estimated_pnl,
-            net_pnl=net_pnl,
-            diff=diff,
-        )
-
-        logger.success(
-            f"[{self.symbol}] 포지션 청산({close_reason}): 예상={estimated_pnl:+.4f}, "
-            f"순수익={net_pnl:+.4f}, 차이={diff:+.4f} USDT"
-        )
-
-        # 거래 기록 저장 + 킬스위치 검사 (청산 후 항상 수행)
-        self._append_trade(net_pnl, close_reason)
-        self._check_kill_switch()
-
-        # _close_and_reenter 대기 해제
-        self._close_event.set()
-
-        # _close_and_reenter 중이면 신규 포지션 상태를 덮어쓰지 않는다
-        if self._is_reentering:
-            return
-
-        # Flat 상태로 초기화
-        self.current_trade_side = None
-        self._entry_price = None
-        self._entry_quantity = None
+            # Flat 상태로 초기화
+            self.current_trade_side = None
+            self._entry_price = None
+            self._entry_quantity = None
 
     _MONITOR_INTERVAL = 300  # 5분
 
@@ -544,52 +606,56 @@ class TradingBot:
                 try:
                     actual_pos = await self.exchange.get_position()
                     if actual_pos is None:
-                        logger.warning(
-                            f"[{self.symbol}] 포지션 불일치 감지: "
-                            f"봇={self.current_trade_side}, 바이낸스=포지션 없음 — 상태 동기화"
-                        )
-                        # Binance income API에서 실제 PnL 조회
-                        realized_pnl = 0.0
-                        commission = 0.0
-                        exit_price = 0.0
-                        try:
-                            pnl_rows, comm_rows = await self.exchange.get_recent_income(limit=10)
-                            if pnl_rows:
-                                realized_pnl = sum(float(r.get("income", "0")) for r in pnl_rows)
-                            if comm_rows:
-                                commission = sum(abs(float(r.get("income", "0"))) for r in comm_rows)
-                        except Exception:
-                            pass
-                        net_pnl = realized_pnl - commission
-                        # exit_price 추정: 진입가 + PnL/수량
-                        if self._entry_quantity and self._entry_quantity > 0 and self._entry_price:
-                            if self.current_trade_side == "LONG":
-                                exit_price = self._entry_price + realized_pnl / self._entry_quantity
-                            else:
-                                exit_price = self._entry_price - realized_pnl / self._entry_quantity
+                        async with self._close_lock:
+                            # Lock 획득 후 재확인 (콜백이 먼저 처리했을 수 있음)
+                            if self.current_trade_side is None:
+                                continue
+                            logger.warning(
+                                f"[{self.symbol}] 포지션 불일치 감지: "
+                                f"봇={self.current_trade_side}, 바이낸스=포지션 없음 — 상태 동기화"
+                            )
+                            # Binance income API에서 실제 PnL 조회
+                            realized_pnl = 0.0
+                            commission = 0.0
+                            exit_price = 0.0
+                            try:
+                                pnl_rows, comm_rows = await self.exchange.get_recent_income(limit=10)
+                                if pnl_rows:
+                                    realized_pnl = sum(float(r.get("income", "0")) for r in pnl_rows)
+                                if comm_rows:
+                                    commission = sum(abs(float(r.get("income", "0"))) for r in comm_rows)
+                            except Exception:
+                                pass
+                            net_pnl = realized_pnl - commission
+                            # exit_price 추정: 진입가 + PnL/수량
+                            if self._entry_quantity and self._entry_quantity > 0 and self._entry_price:
+                                if self.current_trade_side == "LONG":
+                                    exit_price = self._entry_price + realized_pnl / self._entry_quantity
+                                else:
+                                    exit_price = self._entry_price - realized_pnl / self._entry_quantity
 
-                        await self.risk.close_position(self.symbol, net_pnl)
-                        self.notifier.notify_close(
-                            symbol=self.symbol,
-                            side=self.current_trade_side,
-                            close_reason="SYNC",
-                            exit_price=exit_price,
-                            estimated_pnl=realized_pnl,
-                            net_pnl=net_pnl,
-                            diff=net_pnl - realized_pnl,
-                        )
-                        logger.info(
-                            f"[{self.symbol}] 청산 감지(SYNC): exit={exit_price:.4f}, "
-                            f"rp={realized_pnl:+.4f}, commission={commission:.4f}, "
-                            f"net_pnl={net_pnl:+.4f}"
-                        )
-                        self._append_trade(net_pnl, "SYNC")
-                        self._check_kill_switch()
-                        self.current_trade_side = None
-                        self._entry_price = None
-                        self._entry_quantity = None
-                        self._close_event.set()
-                        continue
+                            await self.risk.close_position(self.symbol, net_pnl)
+                            self.notifier.notify_close(
+                                symbol=self.symbol,
+                                side=self.current_trade_side,
+                                close_reason="SYNC",
+                                exit_price=exit_price,
+                                estimated_pnl=realized_pnl,
+                                net_pnl=net_pnl,
+                                diff=net_pnl - realized_pnl,
+                            )
+                            logger.info(
+                                f"[{self.symbol}] 청산 감지(SYNC): exit={exit_price:.4f}, "
+                                f"rp={realized_pnl:+.4f}, commission={commission:.4f}, "
+                                f"net_pnl={net_pnl:+.4f}"
+                            )
+                            self._append_trade(net_pnl, "SYNC")
+                            self._check_kill_switch()
+                            self.current_trade_side = None
+                            self._entry_price = None
+                            self._entry_quantity = None
+                            self._close_event.set()
+                            continue
                 except Exception as e:
                     logger.debug(f"[{self.symbol}] 포지션 동기화 확인 실패 (무시): {e}")
 

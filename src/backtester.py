@@ -491,9 +491,8 @@ class Backtester:
         buy_side = "BUY" if signal == "LONG" else "SELL"
         entry_price = _apply_slippage(price, buy_side, self.cfg.slippage_pct)
 
-        # 수수료
+        # 수수료 (청산 시 net_pnl에서 차감하므로 여기서 balance 차감하지 않음)
         entry_fee = _calc_fee(entry_price, quantity, self.cfg.fee_pct)
-        self.balance -= entry_fee
 
         # SL/TP 계산
         atr = float(row.get("atr", 0))

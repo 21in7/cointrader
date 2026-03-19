@@ -141,3 +141,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-06 | `strategy-parameter-sweep` (plan) | Completed |
 | 2026-03-07 | `weekly-report` (plan) | Completed |
 | 2026-03-07 | `code-review-improvements` | Partial (#1,#2,#4,#5,#6,#8 완료) |
+| 2026-03-19 | `critical-bugfixes` (C5,C1,C3,C8) | Completed |
