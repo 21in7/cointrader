@@ -278,6 +278,7 @@ export default function App() {
   const [positions, setPositions] = useState([]);
   const [botStatus, setBotStatus] = useState({});
   const [trades, setTrades] = useState([]);
+  const [tradesTotal, setTradesTotal] = useState(0);
   const [daily, setDaily] = useState([]);
   const [candles, setCandles] = useState([]);
 
@@ -308,7 +309,10 @@ export default function App() {
       setPositions(pRes.positions || []);
       if (pRes.bot) setBotStatus(pRes.bot);
     }
-    if (tRes?.trades) setTrades(tRes.trades);
+    if (tRes?.trades) {
+      setTrades(tRes.trades);
+      setTradesTotal(tRes.total || tRes.trades.length);
+    }
     if (dRes?.daily) setDaily(dRes.daily);
     if (cRes?.candles) setCandles(cRes.candles);
   }, [selectedSymbol]);
@@ -415,7 +419,7 @@ export default function App() {
                     ? ((isShort ? entP - curP : curP - entP) / entP * 100 * (pos.leverage || 10))
                     : null);
                 const pnlUsdt = uPnl != null ? parseFloat(uPnl) : null;
-                const pnlColor = pnlPct > 0 ? S.green : pnlPct < 0 ? S.red : S.text3;
+                const posPnlColor = pnlPct > 0 ? S.green : pnlPct < 0 ? S.red : S.text3;
                 return (
                 <div key={pos.id} style={{
                   background: "linear-gradient(135deg,rgba(99,102,241,0.08) 0%,rgba(99,102,241,0.02) 100%)",
@@ -436,7 +440,7 @@ export default function App() {
                       {fmt(pos.entry_price)}
                     </span>
                     {pnlPct !== null && (
-                      <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.mono, color: pnlColor }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, fontFamily: S.mono, color: posPnlColor }}>
                         {pnlUsdt != null ? `${pnlUsdt > 0 ? "+" : ""}${pnlUsdt.toFixed(4)}` : ""}
                         {` (${pnlPct > 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`}
                       </span>
@@ -594,7 +598,7 @@ export default function App() {
                   marginTop: 6,
                 }}
               >
-                전체 {trades.length}건 보기 →
+                전체 {tradesTotal}건 보기 →
               </div>
             )}
           </div>
@@ -607,7 +611,7 @@ export default function App() {
               fontSize: 10, color: S.text3, letterSpacing: 1.2,
               fontFamily: S.mono, textTransform: "uppercase", marginBottom: 12,
             }}>
-              전체 거래 내역 ({trades.length}건)
+              전체 거래 내역 ({tradesTotal}건)
             </div>
             {trades.map((t) => (
               <TradeRow
@@ -648,17 +652,22 @@ export default function App() {
               display: "grid", gridTemplateColumns: "1fr 1fr",
               gap: 10, marginTop: 12,
             }}>
-              <ChartBox title="RSI">
+              <ChartBox title="OI 변화율">
                 <ResponsiveContainer width="100%" height={150}>
-                  <LineChart data={candles.map((c) => ({ ts: fmtTime(c.ts), rsi: c.rsi }))}>
+                  <AreaChart data={candles.map((c) => ({ ts: fmtTime(c.ts), oi_change: c.oi_change }))}>
+                    <defs>
+                      <linearGradient id="gOI" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={S.amber} stopOpacity={0.15} />
+                        <stop offset="100%" stopColor={S.amber} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
                     <XAxis dataKey="ts" {...axisStyle} interval="preserveStartEnd" />
-                    <YAxis domain={[0, 100]} {...axisStyle} />
+                    <YAxis {...axisStyle} />
                     <Tooltip content={<ChartTooltip />} />
-                    <Line type="monotone" dataKey={() => 70} stroke="rgba(248,113,113,0.2)" strokeDasharray="4 4" dot={false} name="과매수" />
-                    <Line type="monotone" dataKey={() => 30} stroke="rgba(139,92,246,0.2)" strokeDasharray="4 4" dot={false} name="과매도" />
-                    <Line type="monotone" dataKey="rsi" name="RSI" stroke={S.amber} strokeWidth={1.5} dot={false} />
-                  </LineChart>
+                    <Line type="monotone" dataKey={() => 0} stroke="rgba(255,255,255,0.1)" strokeDasharray="4 4" dot={false} name="기준선" />
+                    <Area type="monotone" dataKey="oi_change" name="OI변화율" stroke={S.amber} strokeWidth={1.5} fill="url(#gOI)" dot={false} />
+                  </AreaChart>
                 </ResponsiveContainer>
               </ChartBox>
 
@@ -697,10 +706,16 @@ export default function App() {
           </span>
           <button
             onClick={async () => {
+              const key = prompt("Reset API Key를 입력하세요:");
+              if (!key) return;
               if (!confirm("DB를 초기화하고 로그를 처음부터 다시 파싱합니다. 계속할까요?")) return;
               try {
-                const r = await fetch("/api/reset", { method: "POST" });
+                const r = await fetch("/api/reset", {
+                  method: "POST",
+                  headers: { "X-API-Key": key },
+                });
                 if (r.ok) { alert("초기화 완료. 잠시 후 데이터가 다시 채워집니다."); location.reload(); }
+                else if (r.status === 403) alert("API Key가 올바르지 않습니다.");
                 else alert("초기화 실패: " + r.statusText);
               } catch (e) { alert("초기화 실패: " + e.message); }
             }}

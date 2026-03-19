@@ -5,27 +5,31 @@ dashboard_api.py — 멀티심볼 대시보드 API
 import sqlite3
 import os
 import signal
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
 from contextlib import contextmanager
 from typing import Optional
 
 DB_PATH = os.environ.get("DB_PATH", "/app/data/dashboard.db")
+PARSER_PID_FILE = os.environ.get("PARSER_PID_FILE", "/tmp/parser.pid")
+DASHBOARD_RESET_KEY = os.environ.get("DASHBOARD_RESET_KEY", "")
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "").split(",") if os.environ.get("CORS_ORIGINS") else ["*"]
 
 app = FastAPI(title="Trading Dashboard API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     try:
         yield conn
     finally:
@@ -64,7 +68,7 @@ def get_position(symbol: Optional[str] = None):
 def get_trades(
     symbol: Optional[str] = None,
     limit: int = Query(50, ge=1, le=500),
-    offset: int = 0,
+    offset: int = Query(0, ge=0),
 ):
     with get_db() as db:
         if symbol:
@@ -166,28 +170,28 @@ def health():
         with get_db() as db:
             cnt = db.execute("SELECT COUNT(*) as c FROM candles").fetchone()["c"]
         return {"status": "ok", "candles_count": cnt}
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
+    except Exception:
+        return {"status": "error", "detail": "database unavailable"}
 
 
 @app.post("/api/reset")
-def reset_db():
+def reset_db(x_api_key: Optional[str] = Header(None)):
+    """DB 초기화 + 파서에 SIGHUP으로 재파싱 요청."""
+    # C1: API key 인증 (DASHBOARD_RESET_KEY가 설정된 경우)
+    if DASHBOARD_RESET_KEY and x_api_key != DASHBOARD_RESET_KEY:
+        raise HTTPException(status_code=403, detail="invalid api key")
+
     with get_db() as db:
         for table in ["trades", "daily_pnl", "parse_state", "bot_status", "candles"]:
             db.execute(f"DELETE FROM {table}")
         db.commit()
 
-    import subprocess, signal
-    for pid_str in os.listdir("/proc") if os.path.isdir("/proc") else []:
-        if not pid_str.isdigit():
-            continue
-        try:
-            with open(f"/proc/{pid_str}/cmdline", "r") as f:
-                cmdline = f.read()
-            if "log_parser.py" in cmdline and str(os.getpid()) != pid_str:
-                os.kill(int(pid_str), signal.SIGTERM)
-        except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
-            pass
-    subprocess.Popen(["python", "log_parser.py"])
+    # C2: PID file + SIGHUP으로 파서에 재파싱 요청 (프로세스 재시작 불필요)
+    try:
+        with open(PARSER_PID_FILE) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, signal.SIGHUP)
+    except (FileNotFoundError, ValueError, ProcessLookupError, OSError):
+        pass
 
-    return {"status": "ok", "message": "DB 초기화 완료, 파서 재시작됨"}
+    return {"status": "ok", "message": "DB 초기화 완료, 파서 재파싱 시작"}

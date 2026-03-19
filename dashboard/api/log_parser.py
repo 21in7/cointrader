@@ -11,7 +11,8 @@ import time
 import glob
 import os
 import json
-import threading
+import signal
+import sys
 from datetime import datetime, date
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from pathlib import Path
 LOG_DIR = os.environ.get("LOG_DIR", "/app/logs")
 DB_PATH = os.environ.get("DB_PATH", "/app/data/dashboard.db")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "5"))  # 초
+PID_FILE = os.environ.get("PARSER_PID_FILE", "/tmp/parser.pid")
 
 # ── 정규식 패턴 (멀티심볼 [SYMBOL] 프리픽스 포함) ─────────────────
 PATTERNS = {
@@ -94,15 +96,26 @@ PATTERNS = {
 class LogParser:
     def __init__(self):
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(DB_PATH)
+        self.conn = sqlite3.connect(DB_PATH, timeout=10)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self._init_db()
 
         self._file_positions = {}
         self._current_positions = {}       # {symbol: position_dict}
         self._pending_candles = {}         # {symbol: {ts_key: {data}}}
         self._balance = 0
+        self._shutdown = False
+        self._dirty = False  # batch commit 플래그
+
+        # PID 파일 기록
+        with open(PID_FILE, "w") as f:
+            f.write(str(os.getpid()))
+
+        # 시그널 핸들러
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
+        signal.signal(signal.SIGHUP, self._handle_sighup)
 
     def _init_db(self):
         self.conn.executescript("""
@@ -215,7 +228,47 @@ class LogParser:
             "ON CONFLICT(filepath) DO UPDATE SET position=?",
             (filepath, pos, pos)
         )
+        self._dirty = True
+
+    def _handle_sigterm(self, signum, frame):
+        """Graceful shutdown — DB 커넥션을 안전하게 닫음."""
+        print("[LogParser] SIGTERM 수신 — 종료")
+        self._shutdown = True
+        try:
+            if self._dirty:
+                self.conn.commit()
+            self.conn.close()
+        except Exception:
+            pass
+        try:
+            os.unlink(PID_FILE)
+        except OSError:
+            pass
+        sys.exit(0)
+
+    def _handle_sighup(self, signum, frame):
+        """SIGHUP → 파싱 상태 초기화, 처음부터 재파싱."""
+        print("[LogParser] SIGHUP 수신 — 상태 초기화, 재파싱 시작")
+        self._file_positions = {}
+        self._current_positions = {}
+        self._pending_candles = {}
+        self.conn.execute("DELETE FROM parse_state")
         self.conn.commit()
+
+    def _batch_commit(self):
+        """배치 커밋 — _dirty 플래그가 설정된 경우에만 커밋."""
+        if self._dirty:
+            self.conn.commit()
+            self._dirty = False
+
+    def _cleanup_pending_candles(self, max_per_symbol=50):
+        """오래된 pending candle 데이터 정리 (I4: 메모리 누적 방지)."""
+        for symbol in list(self._pending_candles):
+            pending = self._pending_candles[symbol]
+            if len(pending) > max_per_symbol:
+                keys = sorted(pending.keys())
+                for k in keys[:-max_per_symbol]:
+                    del pending[k]
 
     def _set_status(self, key, value):
         now = datetime.now().isoformat()
@@ -224,12 +277,12 @@ class LogParser:
             "ON CONFLICT(key) DO UPDATE SET value=?, updated_at=?",
             (key, str(value), now, str(value), now)
         )
-        self.conn.commit()
+        self._dirty = True
 
     # ── 메인 루프 ────────────────────────────────────────────────
     def run(self):
         print(f"[LogParser] 시작 — LOG_DIR={LOG_DIR}, DB={DB_PATH}, 폴링={POLL_INTERVAL}s")
-        while True:
+        while not self._shutdown:
             try:
                 self._scan_logs()
             except Exception as e:
@@ -237,12 +290,11 @@ class LogParser:
             time.sleep(POLL_INTERVAL)
 
     def _scan_logs(self):
-        log_files = sorted(glob.glob(os.path.join(LOG_DIR, "bot*.log")))
-        main_log = os.path.join(LOG_DIR, "bot.log")
-        if os.path.exists(main_log):
-            log_files.append(main_log)
+        log_files = sorted(set(glob.glob(os.path.join(LOG_DIR, "bot*.log"))))
         for filepath in log_files:
             self._parse_file(filepath)
+        self._batch_commit()
+        self._cleanup_pending_candles()
 
     def _parse_file(self, filepath):
         last_pos = self._file_positions.get(filepath, 0)
@@ -387,7 +439,7 @@ class LogParser:
                      price, signal,
                      extra.get("adx"), extra.get("oi"), extra.get("oi_change"), extra.get("funding")),
                 )
-                self.conn.commit()
+                self._dirty = True
             except Exception as e:
                 print(f"[LogParser] 캔들 저장 에러: {e}")
             return
@@ -419,7 +471,7 @@ class LogParser:
                    ON CONFLICT(symbol, date) DO UPDATE SET cumulative_pnl=?, last_updated=?""",
                 (symbol, day, pnl, ts, pnl, ts)
             )
-            self.conn.commit()
+            self._dirty = True
             self._set_status(f"{symbol}:daily_pnl", str(pnl))
             return
 
@@ -461,7 +513,7 @@ class LogParser:
              json.dumps({"recovery": is_recovery}),
              rsi, macd_hist, atr),
         )
-        self.conn.commit()
+        self._dirty = True
         self._current_positions[symbol] = {
             "id": cur.lastrowid,
             "direction": direction,
@@ -498,6 +550,8 @@ class LogParser:
              reason, primary_id)
         )
 
+        self._dirty = True
+
         if len(open_trades) > 1:
             stale_ids = [r["id"] for r in open_trades[1:]]
             self.conn.execute(
@@ -506,21 +560,24 @@ class LogParser:
             )
             print(f"[LogParser] {symbol} 중복 OPEN 거래 {len(stale_ids)}건 삭제")
 
-        # 심볼별 일별 요약
+        # 심볼별 일별 요약 (trades 테이블에서 재계산 — idempotent)
         day = ts[:10]
-        win = 1 if net_pnl > 0 else 0
-        loss = 1 if net_pnl <= 0 else 0
+        row = self.conn.execute(
+            """SELECT COUNT(*) as cnt,
+                      SUM(CASE WHEN net_pnl > 0 THEN 1 ELSE 0 END) as wins,
+                      SUM(CASE WHEN net_pnl <= 0 THEN 1 ELSE 0 END) as losses
+               FROM trades WHERE status='CLOSED' AND symbol=? AND exit_time LIKE ?""",
+            (symbol, f"{day}%"),
+        ).fetchone()
         self.conn.execute(
-            """INSERT INTO daily_pnl(symbol, date, cumulative_pnl, trade_count, wins, losses, last_updated)
-               VALUES(?, ?, ?, 1, ?, ?, ?)
+            """INSERT INTO daily_pnl(symbol, date, trade_count, wins, losses, last_updated)
+               VALUES(?, ?, ?, ?, ?, ?)
                ON CONFLICT(symbol, date) DO UPDATE SET
-                 trade_count = trade_count + 1,
-                 wins = wins + ?,
-                 losses = losses + ?,
-                 last_updated = ?""",
-            (symbol, day, net_pnl, win, loss, ts, win, loss, ts)
+                 trade_count=?, wins=?, losses=?, last_updated=?""",
+            (symbol, day, row["cnt"], row["wins"], row["losses"], ts,
+             row["cnt"], row["wins"], row["losses"], ts),
         )
-        self.conn.commit()
+        self._dirty = True
 
         self._set_status(f"{symbol}:position_status", "NONE")
         print(f"[LogParser] {symbol} 포지션 청산: {reason} @ {exit_price}, PnL={net_pnl}")
@@ -529,4 +586,10 @@ class LogParser:
 
 if __name__ == "__main__":
     parser = LogParser()
-    parser.run()
+    try:
+        parser.run()
+    finally:
+        try:
+            os.unlink(PID_FILE)
+        except OSError:
+            pass
