@@ -76,8 +76,11 @@ class TradingBot:
         self._entry_price: float | None = None
         self._entry_quantity: float | None = None
         self._is_reentering: bool = False  # _close_and_reenter 중 콜백 상태 초기화 방지
+        self._close_event = asyncio.Event()  # 콜백 청산 완료 대기용
+        self._close_handled_by_sync: bool = False  # SYNC 감지 시 콜백 중복 방지
         self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
-        self._oi_history: deque = deque(maxlen=5)
+        self._oi_history: deque = deque(maxlen=96)  # z-score 윈도우(96=1일분 15분봉)
+        self._funding_history: deque = deque(maxlen=96)
         self._latest_ret_1: float = 0.0
         self._killed: bool = False  # 킬스위치 발동 상태
         self._trade_history: list[dict] = []  # 최근 거래 이력 (net_pnl 기록)
@@ -190,8 +193,9 @@ class TradingBot:
 
     async def _on_candle_closed(self, candle: dict):
         primary_df = self.stream.get_dataframe(self.symbol)
-        btc_df = self.stream.get_dataframe("BTCUSDT")
-        eth_df = self.stream.get_dataframe("ETHUSDT")
+        corr = self.config.correlation_symbols
+        btc_df = self.stream.get_dataframe(corr[0]) if len(corr) > 0 else None
+        eth_df = self.stream.get_dataframe(corr[1]) if len(corr) > 1 else None
         if primary_df is not None:
             await self.process_candle(primary_df, btc_df=btc_df, eth_df=eth_df)
 
@@ -240,9 +244,13 @@ class TradingBot:
             oi_change = 0.0
         fr_float = float(fr_val) if isinstance(fr_val, (int, float)) else 0.0
 
-        # OI 히스토리 업데이트 및 MA5 계산
+        # 히스토리 업데이트 (z-score 계산용)
         self._oi_history.append(oi_change)
-        oi_ma5 = sum(self._oi_history) / len(self._oi_history) if self._oi_history else 0.0
+        self._funding_history.append(fr_float)
+
+        # OI MA5 계산
+        recent_5 = list(self._oi_history)[-5:]
+        oi_ma5 = sum(recent_5) / len(recent_5) if recent_5 else 0.0
 
         # OI-가격 스프레드
         oi_price_spread = oi_change - self._latest_ret_1
@@ -274,7 +282,7 @@ class TradingBot:
         # 캔들 마감 시 OI/펀딩비 실시간 조회 (실패해도 0으로 폴백)
         oi_change, funding_rate, oi_ma5, oi_price_spread = await self._fetch_market_microstructure()
 
-        if not self.risk.is_trading_allowed():
+        if not await self.risk.is_trading_allowed():
             logger.warning(f"[{self.symbol}] 리스크 한도 초과 - 거래 중단")
             return
 
@@ -313,6 +321,8 @@ class TradingBot:
                 btc_df=btc_df, eth_df=eth_df,
                 oi_change=oi_change, funding_rate=funding_rate,
                 oi_change_ma5=oi_ma5, oi_price_spread=oi_price_spread,
+                oi_history=list(self._oi_history),
+                funding_history=list(self._funding_history),
             )
             if self.ml_filter.is_model_loaded():
                 if not self.ml_filter.should_enter(features):
@@ -419,6 +429,12 @@ class TradingBot:
         exit_price: float,
     ) -> None:
         """User Data Stream에서 청산 감지 시 호출되는 콜백."""
+        # SYNC 핸들러가 이미 처리한 경우 중복 기록 방지
+        if self._close_handled_by_sync:
+            logger.debug(f"[{self.symbol}] SYNC에서 이미 처리된 청산 — 콜백 건너뜀")
+            self._close_event.set()
+            return
+
         estimated_pnl = self._calc_estimated_pnl(exit_price)
         diff = net_pnl - estimated_pnl
 
@@ -442,6 +458,9 @@ class TradingBot:
         # 거래 기록 저장 + 킬스위치 검사 (청산 후 항상 수행)
         self._append_trade(net_pnl, close_reason)
         self._check_kill_switch()
+
+        # _close_and_reenter 대기 해제
+        self._close_event.set()
 
         # _close_and_reenter 중이면 신규 포지션 상태를 덮어쓰지 않는다
         if self._is_reentering:
@@ -469,6 +488,8 @@ class TradingBot:
                             f"[{self.symbol}] 포지션 불일치 감지: "
                             f"봇={self.current_trade_side}, 바이낸스=포지션 없음 — 상태 동기화"
                         )
+                        # 콜백 중복 방지 플래그 설정
+                        self._close_handled_by_sync = True
                         # Binance income API에서 실제 PnL 조회
                         realized_pnl = 0.0
                         commission = 0.0
@@ -509,6 +530,7 @@ class TradingBot:
                         self.current_trade_side = None
                         self._entry_price = None
                         self._entry_quantity = None
+                        self._close_handled_by_sync = False
                         continue
                 except Exception as e:
                     logger.debug(f"[{self.symbol}] 포지션 동기화 확인 실패 (무시): {e}")
@@ -550,15 +572,21 @@ class TradingBot:
         """기존 포지션을 청산하고, ML 필터 통과 시 반대 방향으로 즉시 재진입한다."""
         # 재진입 플래그: User Data Stream 콜백이 신규 포지션 상태를 초기화하지 않도록 보호
         self._is_reentering = True
-        prev_side = self.current_trade_side
+        self._close_event.clear()
         try:
             await self._close_position(position)
 
-            # 청산 완료 확인: 콜백이 처리했든 아니든 로컬 상태를 명시적으로 Flat으로 전환
+            # 콜백이 PnL을 기록할 때까지 대기 (최대 10초)
+            try:
+                await asyncio.wait_for(self._close_event.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning(f"[{self.symbol}] 청산 콜백 타임아웃 — 수동 동기화")
+                await self.risk.close_position(self.symbol, 0.0)
+
+            # 로컬 상태를 Flat으로 전환
             self.current_trade_side = None
             self._entry_price = None
             self._entry_quantity = None
-            await self.risk.close_position(self.symbol, 0.0) if prev_side and self.symbol not in self.risk.open_positions else None
 
             if self._killed:
                 logger.info(f"[{self.symbol}] 킬스위치 활성 — 재진입 건너뜀 (청산만 수행)")
@@ -574,6 +602,8 @@ class TradingBot:
                     btc_df=btc_df, eth_df=eth_df,
                     oi_change=oi_change, funding_rate=funding_rate,
                     oi_change_ma5=oi_change_ma5, oi_price_spread=oi_price_spread,
+                    oi_history=list(self._oi_history),
+                    funding_history=list(self._funding_history),
                 )
                 if not self.ml_filter.should_enter(features):
                     logger.info(f"[{self.symbol}] ML 필터 차단: {signal} 재진입 무시")

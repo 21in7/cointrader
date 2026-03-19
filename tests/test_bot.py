@@ -84,7 +84,7 @@ async def test_bot_processes_signal(config, sample_df):
     bot.exchange.MIN_NOTIONAL = 5.0
 
     bot.risk = MagicMock()
-    bot.risk.is_trading_allowed.return_value = True
+    bot.risk.is_trading_allowed = AsyncMock(return_value=True)
     bot.risk.can_open_new_position = AsyncMock(return_value=True)
     bot.risk.register_position = AsyncMock()
     bot.risk.get_dynamic_margin_ratio.return_value = 0.50
@@ -108,9 +108,13 @@ async def test_close_and_reenter_calls_open_when_ml_passes(config, sample_df):
     bot._open_position = AsyncMock()
     bot.risk = MagicMock()
     bot.risk.can_open_new_position = AsyncMock(return_value=True)
+    bot.risk.close_position = AsyncMock()
     bot.ml_filter = MagicMock()
     bot.ml_filter.is_model_loaded.return_value = True
     bot.ml_filter.should_enter.return_value = True
+
+    # 콜백 대기를 건너뛰도록 Event 미리 설정
+    bot._close_event.set()
 
     position = {"positionAmt": "100", "entryPrice": "0.5", "markPrice": "0.52"}
     await bot._close_and_reenter(position, "SHORT", sample_df)
@@ -129,9 +133,12 @@ async def test_close_and_reenter_skips_open_when_ml_blocks(config, sample_df):
     bot._open_position = AsyncMock()
     bot.risk = MagicMock()
     bot.risk.can_open_new_position = AsyncMock(return_value=True)
+    bot.risk.close_position = AsyncMock()
     bot.ml_filter = MagicMock()
     bot.ml_filter.is_model_loaded.return_value = True
     bot.ml_filter.should_enter.return_value = False
+
+    bot._close_event.set()
 
     position = {"positionAmt": "100", "entryPrice": "0.5", "markPrice": "0.52"}
     await bot._close_and_reenter(position, "SHORT", sample_df)
@@ -150,6 +157,9 @@ async def test_close_and_reenter_skips_open_when_max_positions_reached(config, s
     bot._open_position = AsyncMock()
     bot.risk = MagicMock()
     bot.risk.can_open_new_position = AsyncMock(return_value=False)
+    bot.risk.close_position = AsyncMock()
+
+    bot._close_event.set()
 
     position = {"positionAmt": "100", "entryPrice": "0.5", "markPrice": "0.52"}
     await bot._close_and_reenter(position, "SHORT", sample_df)
@@ -234,7 +244,7 @@ async def test_process_candle_fetches_oi_and_funding(config, sample_df):
     bot.exchange.get_funding_rate = AsyncMock(return_value=0.0001)
 
     bot.risk = MagicMock()
-    bot.risk.is_trading_allowed.return_value = True
+    bot.risk.is_trading_allowed = AsyncMock(return_value=True)
     bot.risk.can_open_new_position = AsyncMock(return_value=True)
     bot.risk.register_position = AsyncMock()
     bot.risk.get_dynamic_margin_ratio.return_value = 0.50
@@ -266,7 +276,7 @@ def test_bot_has_oi_history_deque(config):
     with patch("src.bot.BinanceFuturesClient"):
         bot = TradingBot(config)
     assert isinstance(bot._oi_history, deque)
-    assert bot._oi_history.maxlen == 5
+    assert bot._oi_history.maxlen == 96
 
 
 @pytest.mark.asyncio

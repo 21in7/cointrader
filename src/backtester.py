@@ -14,6 +14,73 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+
+def _calc_trade_stats(trades: list[dict], initial_balance: float) -> dict:
+    """거래 리스트에서 통계 요약을 계산한다. Backtester와 WalkForward 공통 사용."""
+    if not trades:
+        return {
+            "total_trades": 0, "total_pnl": 0.0, "return_pct": 0.0,
+            "win_rate": 0.0, "avg_win": 0.0, "avg_loss": 0.0,
+            "payoff_ratio": 0.0, "max_consecutive_losses": 0,
+            "profit_factor": 0.0, "max_drawdown_pct": 0.0,
+            "sharpe_ratio": 0.0, "total_fees": 0.0, "close_reasons": {},
+        }
+
+    pnls = [t["net_pnl"] for t in trades]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p <= 0]
+
+    total_pnl = sum(pnls)
+    total_fees = sum(t["entry_fee"] + t["exit_fee"] for t in trades)
+    gross_profit = sum(wins) if wins else 0.0
+    gross_loss = abs(sum(losses)) if losses else 0.0
+
+    cumulative = np.cumsum(pnls)
+    equity = initial_balance + cumulative
+    peak = np.maximum.accumulate(equity)
+    drawdown = (peak - equity) / peak
+    mdd = float(np.max(drawdown)) * 100 if len(drawdown) > 0 else 0.0
+
+    if len(pnls) > 1:
+        pnl_arr = np.array(pnls)
+        sharpe = float(np.mean(pnl_arr) / np.std(pnl_arr) * np.sqrt(24192)) if np.std(pnl_arr) > 0 else 0.0
+    else:
+        sharpe = 0.0
+
+    avg_w = float(np.mean(wins)) if wins else 0.0
+    avg_l = float(np.mean(losses)) if losses else 0.0
+    payoff_ratio = round(avg_w / abs(avg_l), 2) if avg_l != 0 else float("inf")
+
+    max_consec_loss = 0
+    cur_streak = 0
+    for p in pnls:
+        if p <= 0:
+            cur_streak += 1
+            max_consec_loss = max(max_consec_loss, cur_streak)
+        else:
+            cur_streak = 0
+
+    reasons = {}
+    for t in trades:
+        r = t["close_reason"]
+        reasons[r] = reasons.get(r, 0) + 1
+
+    return {
+        "total_trades": len(trades),
+        "total_pnl": round(total_pnl, 4),
+        "return_pct": round(total_pnl / initial_balance * 100, 2),
+        "win_rate": round(len(wins) / len(trades) * 100, 2),
+        "avg_win": round(avg_w, 4),
+        "avg_loss": round(avg_l, 4),
+        "payoff_ratio": payoff_ratio,
+        "max_consecutive_losses": max_consec_loss,
+        "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else float("inf"),
+        "max_drawdown_pct": round(mdd, 2),
+        "sharpe_ratio": round(sharpe, 2),
+        "total_fees": round(total_fees, 4),
+        "close_reasons": reasons,
+    }
+
 import warnings
 
 import joblib
@@ -524,80 +591,7 @@ class Backtester:
         }
 
     def _calc_summary(self) -> dict:
-        if not self.trades:
-            return {
-                "total_trades": 0,
-                "total_pnl": 0.0,
-                "return_pct": 0.0,
-                "win_rate": 0.0,
-                "avg_win": 0.0,
-                "avg_loss": 0.0,
-                "profit_factor": 0.0,
-                "max_drawdown_pct": 0.0,
-                "sharpe_ratio": 0.0,
-                "total_fees": 0.0,
-                "close_reasons": {},
-            }
-
-        pnls = [t["net_pnl"] for t in self.trades]
-        wins = [p for p in pnls if p > 0]
-        losses = [p for p in pnls if p <= 0]
-
-        total_pnl = sum(pnls)
-        total_fees = sum(t["entry_fee"] + t["exit_fee"] for t in self.trades)
-        gross_profit = sum(wins) if wins else 0.0
-        gross_loss = abs(sum(losses)) if losses else 0.0
-
-        # MDD 계산
-        cumulative = np.cumsum(pnls)
-        equity = self.cfg.initial_balance + cumulative
-        peak = np.maximum.accumulate(equity)
-        drawdown = (peak - equity) / peak
-        mdd = float(np.max(drawdown)) * 100 if len(drawdown) > 0 else 0.0
-
-        # 샤프비율 (연율화, 15분봉 기준: 252일 * 96봉 = 24192)
-        if len(pnls) > 1:
-            pnl_arr = np.array(pnls)
-            sharpe = float(np.mean(pnl_arr) / np.std(pnl_arr) * np.sqrt(24192)) if np.std(pnl_arr) > 0 else 0.0
-        else:
-            sharpe = 0.0
-
-        # 손익비 (avg_win / |avg_loss|)
-        avg_w = float(np.mean(wins)) if wins else 0.0
-        avg_l = float(np.mean(losses)) if losses else 0.0
-        payoff_ratio = round(avg_w / abs(avg_l), 2) if avg_l != 0 else float("inf")
-
-        # 최대 연속 손실 횟수
-        max_consec_loss = 0
-        cur_streak = 0
-        for p in pnls:
-            if p <= 0:
-                cur_streak += 1
-                max_consec_loss = max(max_consec_loss, cur_streak)
-            else:
-                cur_streak = 0
-
-        # 청산 사유별 비율
-        reasons = {}
-        for t in self.trades:
-            r = t["close_reason"]
-            reasons[r] = reasons.get(r, 0) + 1
-
-        return {
-            "total_trades": len(self.trades),
-            "total_pnl": round(total_pnl, 4),
-            "return_pct": round(total_pnl / self.cfg.initial_balance * 100, 2),
-            "win_rate": round(len(wins) / len(self.trades) * 100, 2) if self.trades else 0.0,
-            "avg_win": round(avg_w, 4),
-            "avg_loss": round(avg_l, 4),
-            "payoff_ratio": payoff_ratio,
-            "max_consecutive_losses": max_consec_loss,
-            "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else float("inf"),
-            "max_drawdown_pct": round(mdd, 2),
-            "sharpe_ratio": round(sharpe, 2),
-            "total_fees": round(total_fees, 4),
-            "close_reasons": reasons,
-        }
+        return _calc_trade_stats(self.trades, self.cfg.initial_balance)
 
 
 # ── Walk-Forward 백테스트 ─────────────────────────────────────────────
@@ -810,70 +804,7 @@ class WalkForwardBacktester:
         """폴드별 결과를 합산하여 전체 Walk-Forward 결과 생성."""
         from src.backtest_validator import validate
 
-        # 전체 통계 계산
-        if not all_trades:
-            summary = {"total_trades": 0, "total_pnl": 0.0, "return_pct": 0.0,
-                       "win_rate": 0.0, "avg_win": 0.0, "avg_loss": 0.0,
-                       "payoff_ratio": 0.0, "max_consecutive_losses": 0,
-                       "profit_factor": 0.0, "max_drawdown_pct": 0.0,
-                       "sharpe_ratio": 0.0, "total_fees": 0.0, "close_reasons": {}}
-        else:
-            pnls = [t["net_pnl"] for t in all_trades]
-            wins = [p for p in pnls if p > 0]
-            losses = [p for p in pnls if p <= 0]
-            total_pnl = sum(pnls)
-            total_fees = sum(t["entry_fee"] + t["exit_fee"] for t in all_trades)
-            gross_profit = sum(wins) if wins else 0.0
-            gross_loss = abs(sum(losses)) if losses else 0.0
-
-            cumulative = np.cumsum(pnls)
-            equity = self.cfg.initial_balance + cumulative
-            peak = np.maximum.accumulate(equity)
-            drawdown = (peak - equity) / peak
-            mdd = float(np.max(drawdown)) * 100 if len(drawdown) > 0 else 0.0
-
-            if len(pnls) > 1:
-                pnl_arr = np.array(pnls)
-                sharpe = float(np.mean(pnl_arr) / np.std(pnl_arr) * np.sqrt(24192)) if np.std(pnl_arr) > 0 else 0.0
-            else:
-                sharpe = 0.0
-
-            # 손익비 (avg_win / |avg_loss|)
-            avg_w = float(np.mean(wins)) if wins else 0.0
-            avg_l = float(np.mean(losses)) if losses else 0.0
-            payoff_ratio = round(avg_w / abs(avg_l), 2) if avg_l != 0 else float("inf")
-
-            # 최대 연속 손실 횟수
-            max_consec_loss = 0
-            cur_streak = 0
-            for p in pnls:
-                if p <= 0:
-                    cur_streak += 1
-                    max_consec_loss = max(max_consec_loss, cur_streak)
-                else:
-                    cur_streak = 0
-
-            reasons = {}
-            for t in all_trades:
-                r = t["close_reason"]
-                reasons[r] = reasons.get(r, 0) + 1
-
-            summary = {
-                "total_trades": len(all_trades),
-                "total_pnl": round(total_pnl, 4),
-                "return_pct": round(total_pnl / self.cfg.initial_balance * 100, 2),
-                "win_rate": round(len(wins) / len(all_trades) * 100, 2),
-                "avg_win": round(avg_w, 4),
-                "avg_loss": round(avg_l, 4),
-                "payoff_ratio": payoff_ratio,
-                "max_consecutive_losses": max_consec_loss,
-                "profit_factor": round(gross_profit / gross_loss, 2) if gross_loss > 0 else float("inf"),
-                "max_drawdown_pct": round(mdd, 2),
-                "sharpe_ratio": round(sharpe, 2),
-                "total_fees": round(total_fees, 4),
-                "close_reasons": reasons,
-            }
-
+        summary = _calc_trade_stats(all_trades, self.cfg.initial_balance)
         validation = validate(all_trades, summary, self.cfg)
 
         return {

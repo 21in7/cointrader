@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from loguru import logger
 
@@ -10,9 +11,17 @@ class DiscordNotifier:
         self._enabled = bool(webhook_url)
 
     def _send(self, content: str) -> None:
+        """알림 전송. 이벤트 루프 내에서는 백그라운드 스레드로 실행하여 블로킹 방지."""
         if not self._enabled:
             logger.debug("Discord 웹훅 URL 미설정 - 알림 건너뜀")
             return
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(None, self._send_sync, content)
+        except RuntimeError:
+            self._send_sync(content)
+
+    def _send_sync(self, content: str) -> None:
         try:
             resp = httpx.post(
                 self.webhook_url,

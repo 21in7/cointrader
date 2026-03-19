@@ -12,17 +12,18 @@ class RiskManager:
         self.open_positions: dict[str, str] = {}  # {symbol: side}
         self._lock = asyncio.Lock()
 
-    def is_trading_allowed(self) -> bool:
+    async def is_trading_allowed(self) -> bool:
         """일일 최대 손실 초과 시 거래 중단"""
-        if self.initial_balance <= 0:
+        async with self._lock:
+            if self.initial_balance <= 0:
+                return True
+            loss_pct = abs(self.daily_pnl) / self.initial_balance
+            if self.daily_pnl < 0 and loss_pct >= self.max_daily_loss_pct:
+                logger.warning(
+                    f"일일 손실 한도 초과: {loss_pct:.2%} >= {self.max_daily_loss_pct:.2%}"
+                )
+                return False
             return True
-        loss_pct = abs(self.daily_pnl) / self.initial_balance
-        if self.daily_pnl < 0 and loss_pct >= self.max_daily_loss_pct:
-            logger.warning(
-                f"일일 손실 한도 초과: {loss_pct:.2%} >= {self.max_daily_loss_pct:.2%}"
-            )
-            return False
-        return True
 
     async def can_open_new_position(self, symbol: str, side: str) -> bool:
         """포지션 오픈 가능 여부 (전체 한도 + 중복 진입 + 동일 방향 제한)"""

@@ -25,9 +25,6 @@ class Config:
     leverage: int = 10
     max_positions: int = 3
     max_same_direction: int = 2
-    stop_loss_pct: float = 0.015    # 1.5%
-    take_profit_pct: float = 0.045  # 4.5% (3:1 RR)
-    trailing_stop_pct: float = 0.01  # 1%
     discord_webhook_url: str = ""
     margin_max_ratio: float = 0.50
     margin_min_ratio: float = 0.20

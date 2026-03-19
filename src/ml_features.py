@@ -167,6 +167,8 @@ def build_features_aligned(
     funding_rate: float | None = None,
     oi_change_ma5: float | None = None,
     oi_price_spread: float | None = None,
+    oi_history: list[float] | None = None,
+    funding_history: list[float] | None = None,
 ) -> pd.Series:
     """
     학습(dataset_builder._calc_features_vectorized)과 동일한 rolling z-score를
@@ -297,12 +299,27 @@ def build_features_aligned(
             "primary_eth_rs": _rolling_zscore_last(rs_eth),
         })
 
-    # OI/펀딩비 z-score (실시간 값이 제공되면 히스토리 끝에 추가하여 z-score)
-    # 서빙 시 OI/펀딩비 히스토리가 없으므로 단일 값 → z-score 불가, NaN 처리
-    # LightGBM은 NaN을 자체 처리함
-    base["oi_change"]       = float(oi_change)       if oi_change       is not None else np.nan
-    base["funding_rate"]    = float(funding_rate)    if funding_rate    is not None else np.nan
-    base["oi_change_ma5"]   = float(oi_change_ma5)   if oi_change_ma5   is not None else np.nan
+    # OI/펀딩비 z-score (학습과 동일한 rolling z-score 적용)
+    if oi_history and len(oi_history) >= 2 and oi_change is not None:
+        oi_arr = np.array(oi_history, dtype=np.float64)
+        base["oi_change"] = _rolling_zscore_last(oi_arr, window=_ZSCORE_WINDOW_OI)
+    else:
+        base["oi_change"] = np.nan
+
+    if funding_history and len(funding_history) >= 2 and funding_rate is not None:
+        fr_arr = np.array(funding_history, dtype=np.float64)
+        base["funding_rate"] = _rolling_zscore_last(fr_arr, window=_ZSCORE_WINDOW_OI)
+    else:
+        base["funding_rate"] = np.nan
+
+    if oi_history and len(oi_history) >= 5 and oi_change_ma5 is not None:
+        # OI MA5 히스토리로 z-score
+        oi_arr = np.array(oi_history, dtype=np.float64)
+        ma5 = pd.Series(oi_arr).rolling(5, min_periods=1).mean().values
+        base["oi_change_ma5"] = _rolling_zscore_last(ma5, window=_ZSCORE_WINDOW_OI)
+    else:
+        base["oi_change_ma5"] = np.nan
+
     base["oi_price_spread"] = float(oi_price_spread) if oi_price_spread is not None else np.nan
     base["adx"] = adx_z
 

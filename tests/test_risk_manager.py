@@ -15,18 +15,20 @@ def config():
     return Config()
 
 
-def test_max_drawdown_check(config):
+@pytest.mark.asyncio
+async def test_max_drawdown_check(config):
     rm = RiskManager(config, max_daily_loss_pct=0.05)
     rm.daily_pnl = -60.0
     rm.initial_balance = 1000.0
-    assert rm.is_trading_allowed() is False
+    assert await rm.is_trading_allowed() is False
 
 
-def test_trading_allowed_normal(config):
+@pytest.mark.asyncio
+async def test_trading_allowed_normal(config):
     rm = RiskManager(config, max_daily_loss_pct=0.05)
     rm.daily_pnl = -10.0
     rm.initial_balance = 1000.0
-    assert rm.is_trading_allowed() is True
+    assert await rm.is_trading_allowed() is True
 
 
 @pytest.mark.asyncio

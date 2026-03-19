@@ -7,6 +7,9 @@ from src.config import Config
 
 
 class BinanceFuturesClient:
+    # 클래스 레벨 exchange info 캐시 (전체 심볼 1회만 조회)
+    _exchange_info_cache: dict | None = None
+
     def __init__(self, config: Config, symbol: str = None):
         self.config = config
         self.symbol = symbol or config.symbol
@@ -19,10 +22,21 @@ class BinanceFuturesClient:
 
     MIN_NOTIONAL = 5.0  # 바이낸스 선물 최소 명목금액 (USDT)
 
+    @classmethod
+    def _get_exchange_info(cls, client: Client) -> dict | None:
+        """exchange info를 클래스 레벨로 캐시하여 1회만 조회한다."""
+        if cls._exchange_info_cache is None:
+            try:
+                cls._exchange_info_cache = client.futures_exchange_info()
+            except Exception as e:
+                logger.warning(f"exchange info 조회 실패: {e}")
+                return None
+        return cls._exchange_info_cache
+
     def _load_symbol_precision(self) -> None:
         """바이낸스 exchange info에서 심볼별 수량/가격 정밀도를 로드한다."""
-        try:
-            info = self.client.futures_exchange_info()
+        info = self._get_exchange_info(self.client)
+        if info is not None:
             for s in info["symbols"]:
                 if s["symbol"] == self.symbol:
                     self._qty_precision = s.get("quantityPrecision", 1)
@@ -32,12 +46,8 @@ class BinanceFuturesClient:
                     )
                     return
             logger.warning(f"[{self.symbol}] exchange info에서 심볼 미발견, 기본 정밀도 사용")
-            self._qty_precision = 1
-            self._price_precision = 2
-        except Exception as e:
-            logger.warning(f"[{self.symbol}] exchange info 조회 실패 ({e}), 기본 정밀도 사용")
-            self._qty_precision = 1
-            self._price_precision = 2
+        self._qty_precision = 1
+        self._price_precision = 2
 
     @property
     def qty_precision(self) -> int:
@@ -109,10 +119,10 @@ class BinanceFuturesClient:
             quantity=quantity,
             reduceOnly=reduce_only,
         )
-        if price:
+        if price is not None:
             params["price"] = price
             params["timeInForce"] = "GTC"
-        if stop_price:
+        if stop_price is not None:
             params["stopPrice"] = stop_price
         try:
             return await loop.run_in_executor(
