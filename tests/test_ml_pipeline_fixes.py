@@ -54,3 +54,26 @@ def test_default_sltp_backward_compatible(signal_df):
     if len(r_default) > 0:
         assert len(r_default) == len(r_explicit)
         assert (r_default["label"].values == r_explicit["label"].values).all()
+
+
+def test_equity_curve_includes_unrealized_pnl():
+    """에퀴티 커브에 미실현 PnL이 반영되어야 한다."""
+    from src.backtester import Backtester, BacktestConfig, Position
+    import pandas as pd
+
+    cfg = BacktestConfig(symbols=["TEST"], initial_balance=1000.0)
+    bt = Backtester.__new__(Backtester)
+    bt.cfg = cfg
+    bt.balance = 1000.0
+    bt._peak_equity = 1000.0
+    bt.equity_curve = []
+    bt.positions = {"TEST": Position(
+        symbol="TEST", side="LONG", entry_price=100.0,
+        quantity=10.0, sl=95.0, tp=110.0,
+        entry_time=pd.Timestamp("2026-01-01"), entry_fee=0.4,
+    )}
+
+    bt._record_equity(pd.Timestamp("2026-01-01 00:15:00"), current_prices={"TEST": 105.0})
+
+    last = bt.equity_curve[-1]
+    assert last["equity"] == 1050.0, f"Expected 1050.0 (1000+50), got {last['equity']}"
