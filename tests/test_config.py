@@ -48,3 +48,28 @@ def test_config_max_same_direction_default():
     """동일 방향 최대 수 기본값 2."""
     cfg = Config()
     assert cfg.max_same_direction == 2
+
+
+def test_config_rejects_zero_leverage():
+    """LEVERAGE=0은 ValueError."""
+    os.environ["LEVERAGE"] = "0"
+    with pytest.raises(ValueError, match="LEVERAGE"):
+        Config()
+    os.environ["LEVERAGE"] = "10"  # 복원
+
+
+def test_config_rejects_invalid_margin_ratio():
+    """MARGIN_MAX_RATIO가 0이면 ValueError."""
+    os.environ["MARGIN_MAX_RATIO"] = "0"
+    with pytest.raises(ValueError, match="MARGIN_MAX_RATIO"):
+        Config()
+    os.environ["MARGIN_MAX_RATIO"] = "0.50"  # 복원
+
+
+def test_config_rejects_min_gt_max_margin():
+    """MARGIN_MIN > MAX이면 ValueError."""
+    os.environ["MARGIN_MIN_RATIO"] = "0.80"
+    os.environ["MARGIN_MAX_RATIO"] = "0.50"
+    with pytest.raises(ValueError, match="MARGIN_MIN_RATIO"):
+        Config()
+    os.environ["MARGIN_MIN_RATIO"] = "0.20"  # 복원

@@ -1,3 +1,4 @@
+import threading
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from src.exchange import BinanceFuturesClient
@@ -25,6 +26,7 @@ def client():
     c.symbol = config.symbol
     c._qty_precision = 1
     c._price_precision = 4
+    c._api_lock = threading.Lock()
     return c
 
 
@@ -43,6 +45,7 @@ def exchange():
     c.client = MagicMock()
     c._qty_precision = 1
     c._price_precision = 4
+    c._api_lock = threading.Lock()
     return c
 
 

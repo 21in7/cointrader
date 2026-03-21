@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import os
 from src.risk_manager import RiskManager
@@ -137,3 +138,31 @@ async def test_max_positions_global_limit(shared_risk):
     await shared_risk.register_position("XRPUSDT", "LONG")
     await shared_risk.register_position("TRXUSDT", "SHORT")
     assert await shared_risk.can_open_new_position("DOGEUSDT", "LONG") is False
+
+
+@pytest.mark.asyncio
+async def test_reset_daily_with_lock(shared_risk):
+    """reset_daily가 lock 하에서 PnL을 초기화한다."""
+    await shared_risk.close_position("DUMMY", 5.0)  # dummy 기록
+    shared_risk.open_positions.clear()  # clean up
+    assert shared_risk.daily_pnl == 5.0
+    await shared_risk.reset_daily()
+    assert shared_risk.daily_pnl == 0.0
+
+
+@pytest.mark.asyncio
+async def test_entry_lock_serializes_access(shared_risk):
+    """_entry_lock이 동시 접근을 직렬화하는지 확인."""
+    order = []
+
+    async def simulated_entry(name: str):
+        async with shared_risk._entry_lock:
+            order.append(f"{name}_start")
+            await asyncio.sleep(0.05)
+            order.append(f"{name}_end")
+
+    await asyncio.gather(simulated_entry("A"), simulated_entry("B"))
+    # 직렬화 확인: A_start, A_end, B_start, B_end 또는 B_start, B_end, A_start, A_end
+    assert order[0].endswith("_start")
+    assert order[1].endswith("_end")
+    assert order[0][0] == order[1][0]  # 같은 이름으로 시작/끝

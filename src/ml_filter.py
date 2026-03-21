@@ -144,6 +144,7 @@ class MLFilter:
             else:
                 available = [c for c in FEATURE_COLS if c in features.index]
                 X = pd.DataFrame([features[available].values.astype(np.float64)], columns=available)
+                X = X.fillna(0.0)  # ONNX(nan_to_num)와 동일한 NaN 처리
                 proba = float(self._lgbm_model.predict_proba(X)[0][1])
             logger.debug(
                 f"ML 필터 [{self.active_backend}] 확률: {proba:.3f} "

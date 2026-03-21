@@ -11,6 +11,7 @@ class RiskManager:
         self.initial_balance: float = 0.0
         self.open_positions: dict[str, str] = {}  # {symbol: side}
         self._lock = asyncio.Lock()
+        self._entry_lock = asyncio.Lock()  # 동시 진입 시 잔고 레이스 방지
 
     async def is_trading_allowed(self) -> bool:
         """일일 최대 손실 초과 시 거래 중단"""
@@ -58,10 +59,11 @@ class RiskManager:
             self.daily_pnl += pnl
             logger.info(f"오늘 누적 PnL: {self.daily_pnl:.4f} USDT")
 
-    def reset_daily(self):
+    async def reset_daily(self):
         """매일 자정 초기화"""
-        self.daily_pnl = 0.0
-        logger.info("일일 PnL 초기화")
+        async with self._lock:
+            self.daily_pnl = 0.0
+            logger.info("일일 PnL 초기화")
 
     def set_base_balance(self, balance: float) -> None:
         """봇 시작 시 기준 잔고 설정"""

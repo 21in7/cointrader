@@ -19,7 +19,7 @@ async def _daily_reset_loop(risk: RiskManager):
             hour=0, minute=0, second=0, microsecond=0,
         )
         await asyncio.sleep((next_midnight - now).total_seconds())
-        risk.reset_daily()
+        await risk.reset_daily()
 
 
 async def _graceful_shutdown(bots: list[TradingBot], tasks: list[asyncio.Task]):

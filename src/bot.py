@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,6 +77,7 @@ class TradingBot:
         self._entry_price: float | None = None
         self._entry_quantity: float | None = None
         self._is_reentering: bool = False  # _close_and_reenter 중 콜백 상태 초기화 방지
+        self._entry_time_ms: int | None = None  # 포지션 진입 시각 (ms, SYNC PnL 범위 제한용)
         self._close_event = asyncio.Event()  # 콜백 청산 완료 대기용
         self._close_lock = asyncio.Lock()  # 청산 처리 원자성 보장 (C3 fix)
         self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
@@ -194,8 +196,9 @@ class TradingBot:
     async def _on_candle_closed(self, candle: dict):
         primary_df = self.stream.get_dataframe(self.symbol)
         corr = self.config.correlation_symbols
-        btc_df = self.stream.get_dataframe(corr[0]) if len(corr) > 0 else None
-        eth_df = self.stream.get_dataframe(corr[1]) if len(corr) > 1 else None
+        corr_dfs = {s: self.stream.get_dataframe(s) for s in corr}
+        btc_df = corr_dfs.get("BTCUSDT")
+        eth_df = corr_dfs.get("ETHUSDT")
         if primary_df is not None:
             await self.process_candle(primary_df, btc_df=btc_df, eth_df=eth_df)
 
@@ -208,6 +211,7 @@ class TradingBot:
             self.current_trade_side = "LONG" if amt > 0 else "SHORT"
             self._entry_price = float(position["entryPrice"])
             self._entry_quantity = abs(amt)
+            self._entry_time_ms = int(float(position.get("updateTime", time.time() * 1000)))
             entry = float(position["entryPrice"])
             logger.info(
                 f"[{self.symbol}] 기존 포지션 복구: {self.current_trade_side} | "
@@ -403,44 +407,51 @@ class TradingBot:
                 )
 
     async def _open_position(self, signal: str, df):
-        balance = await self.exchange.get_balance()
-        num_symbols = len(self.config.symbols)
-        per_symbol_balance = balance / num_symbols
-        price = df["close"].iloc[-1]
-        margin_ratio = self.risk.get_dynamic_margin_ratio(per_symbol_balance)
-        quantity = self.exchange.calculate_quantity(
-            balance=per_symbol_balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
-        )
-        logger.info(f"[{self.symbol}] 포지션 크기: 잔고={per_symbol_balance:.2f}/{balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
-        stop_loss, take_profit = Indicators(df).get_atr_stop(
-            df, signal, price,
-            atr_sl_mult=self.strategy.atr_sl_mult,
-            atr_tp_mult=self.strategy.atr_tp_mult,
-        )
-
-        notional = quantity * price
-        if quantity <= 0 or notional < self.exchange.MIN_NOTIONAL:
-            logger.warning(
-                f"주문 건너뜀: 명목금액 {notional:.2f} USDT < 최소 {self.exchange.MIN_NOTIONAL} USDT "
-                f"(잔고={balance:.2f}, 수량={quantity})"
+        # 동시 진입 시 잔고 레이스 방지: entry_lock으로 잔고 조회→주문→등록을 직렬화
+        async with self.risk._entry_lock:
+            balance = await self.exchange.get_balance()
+            num_symbols = len(self.config.symbols)
+            per_symbol_balance = balance / num_symbols
+            price = df["close"].iloc[-1]
+            margin_ratio = self.risk.get_dynamic_margin_ratio(per_symbol_balance)
+            quantity = self.exchange.calculate_quantity(
+                balance=per_symbol_balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
             )
-            return
+            logger.info(f"[{self.symbol}] 포지션 크기: 잔고={per_symbol_balance:.2f}/{balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
+            # df는 이미 calculate_all() 적용된 df_with_indicators이므로
+            # Indicators를 재생성하지 않고 ATR을 직접 사용
+            atr = df["atr"].iloc[-1]
+            if signal == "LONG":
+                stop_loss = price - atr * self.strategy.atr_sl_mult
+                take_profit = price + atr * self.strategy.atr_tp_mult
+            else:
+                stop_loss = price + atr * self.strategy.atr_sl_mult
+                take_profit = price - atr * self.strategy.atr_tp_mult
 
-        side = "BUY" if signal == "LONG" else "SELL"
-        await self.exchange.set_leverage(self.config.leverage)
-        await self.exchange.place_order(side=side, quantity=quantity)
+            notional = quantity * price
+            if quantity <= 0 or notional < self.exchange.MIN_NOTIONAL:
+                logger.warning(
+                    f"주문 건너뜀: 명목금액 {notional:.2f} USDT < 최소 {self.exchange.MIN_NOTIONAL} USDT "
+                    f"(잔고={balance:.2f}, 수량={quantity})"
+                )
+                return
 
-        last_row = df.iloc[-1]
-        signal_snapshot = {
-            "rsi":       float(last_row["rsi"])       if "rsi"       in last_row.index and pd.notna(last_row["rsi"])       else 0.0,
-            "macd_hist": float(last_row["macd_hist"]) if "macd_hist" in last_row.index and pd.notna(last_row["macd_hist"]) else 0.0,
-            "atr":       float(last_row["atr"])       if "atr"       in last_row.index and pd.notna(last_row["atr"])       else 0.0,
-        }
+            side = "BUY" if signal == "LONG" else "SELL"
+            await self.exchange.set_leverage(self.config.leverage)
+            await self.exchange.place_order(side=side, quantity=quantity)
 
-        await self.risk.register_position(self.symbol, signal)
-        self.current_trade_side = signal
-        self._entry_price = price
-        self._entry_quantity = quantity
+            last_row = df.iloc[-1]
+            signal_snapshot = {
+                "rsi":       float(last_row["rsi"])       if "rsi"       in last_row.index and pd.notna(last_row["rsi"])       else 0.0,
+                "macd_hist": float(last_row["macd_hist"]) if "macd_hist" in last_row.index and pd.notna(last_row["macd_hist"]) else 0.0,
+                "atr":       float(last_row["atr"])       if "atr"       in last_row.index and pd.notna(last_row["atr"])       else 0.0,
+            }
+
+            await self.risk.register_position(self.symbol, signal)
+            self.current_trade_side = signal
+            self._entry_price = price
+            self._entry_quantity = quantity
+            self._entry_time_ms = int(time.time() * 1000)
         self.notifier.notify_open(
             symbol=self.symbol,
             side=signal,
@@ -592,6 +603,7 @@ class TradingBot:
             self.current_trade_side = None
             self._entry_price = None
             self._entry_quantity = None
+            self._entry_time_ms = None
 
     _MONITOR_INTERVAL = 300  # 5분
 
@@ -619,7 +631,9 @@ class TradingBot:
                             commission = 0.0
                             exit_price = 0.0
                             try:
-                                pnl_rows, comm_rows = await self.exchange.get_recent_income(limit=10)
+                                pnl_rows, comm_rows = await self.exchange.get_recent_income(
+                                    limit=10, start_time=self._entry_time_ms,
+                                )
                                 if pnl_rows:
                                     realized_pnl = sum(float(r.get("income", "0")) for r in pnl_rows)
                                 if comm_rows:
@@ -654,6 +668,7 @@ class TradingBot:
                             self.current_trade_side = None
                             self._entry_price = None
                             self._entry_quantity = None
+                            self._entry_time_ms = None
                             self._close_event.set()
                             continue
                 except Exception as e:
@@ -711,6 +726,7 @@ class TradingBot:
             self.current_trade_side = None
             self._entry_price = None
             self._entry_quantity = None
+            self._entry_time_ms = None
 
             if self._killed:
                 logger.info(f"[{self.symbol}] 킬스위치 활성 — 재진입 건너뜀 (청산만 수행)")

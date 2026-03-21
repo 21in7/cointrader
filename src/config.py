@@ -64,6 +64,18 @@ class Config:
         corr_env = os.getenv("CORRELATION_SYMBOLS", "BTCUSDT,ETHUSDT")
         self.correlation_symbols = [s.strip() for s in corr_env.split(",") if s.strip()]
 
+        # 입력 검증
+        if self.leverage < 1:
+            raise ValueError(f"LEVERAGE는 1 이상이어야 합니다: {self.leverage}")
+        if not (0.0 < self.margin_max_ratio <= 1.0):
+            raise ValueError(f"MARGIN_MAX_RATIO는 (0, 1] 범위여야 합니다: {self.margin_max_ratio}")
+        if not (0.0 < self.margin_min_ratio <= 1.0):
+            raise ValueError(f"MARGIN_MIN_RATIO는 (0, 1] 범위여야 합니다: {self.margin_min_ratio}")
+        if self.margin_min_ratio > self.margin_max_ratio:
+            raise ValueError(f"MARGIN_MIN_RATIO({self.margin_min_ratio}) > MARGIN_MAX_RATIO({self.margin_max_ratio})")
+        if not (0.0 < self.ml_threshold <= 1.0):
+            raise ValueError(f"ML_THRESHOLD는 (0, 1] 범위여야 합니다: {self.ml_threshold}")
+
         # Per-symbol strategy params: {symbol: SymbolStrategyParams}
         self._symbol_params: dict[str, SymbolStrategyParams] = {}
         for sym in self.symbols:
