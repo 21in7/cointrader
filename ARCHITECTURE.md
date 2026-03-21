@@ -35,14 +35,14 @@ CoinTrader는 **Binance Futures 자동매매 봇**입니다.
 
 ```
 main.py
-  └─ Config (SYMBOLS=XRPUSDT,SOLUSDT,DOGEUSDT)
+  └─ Config (SYMBOLS=XRPUSDT)  # 멀티심볼 지원, 현재 XRP만 운영
   └─ RiskManager (공유 싱글턴, asyncio.Lock)
   └─ asyncio.gather(
        TradingBot(symbol="XRPUSDT", risk=shared_risk),
-       TradingBot(symbol="SOLUSDT", risk=shared_risk),
-       TradingBot(symbol="DOGEUSDT", risk=shared_risk),
      )
 ```
+
+> **운영 이력**: SOL/DOGE/TRX는 파라미터 스윕에서 모든 조합에서 PF < 1.0으로 제외 (2026-03-21).
 
 - **독립**: 각 봇은 자체 `Exchange`, `MLFilter`, `DataStream`, `SymbolStrategyParams`를 소유
 - **공유**: `RiskManager`만 싱글턴으로 글로벌 리스크(일일 손실 한도, 동일 방향 제한) 관리

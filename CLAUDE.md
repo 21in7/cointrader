@@ -90,7 +90,7 @@ bash scripts/deploy_model.sh --symbol XRPUSDT
 
 ## Configuration
 
-Environment variables via `.env` file (see `.env.example`). Key vars: `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `SYMBOLS` (comma-separated, e.g. `XRPUSDT,TRXUSDT`), `CORRELATION_SYMBOLS` (default `BTCUSDT,ETHUSDT`), `LEVERAGE`, `DISCORD_WEBHOOK_URL`, `MARGIN_MAX_RATIO`, `MARGIN_MIN_RATIO`, `MAX_SAME_DIRECTION` (default 2), `NO_ML_FILTER`.
+Environment variables via `.env` file (see `.env.example`). Key vars: `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `SYMBOLS` (comma-separated, currently `XRPUSDT` only — SOL/DOGE/TRX removed due to PF < 1.0), `CORRELATION_SYMBOLS` (default `BTCUSDT,ETHUSDT`), `LEVERAGE`, `DISCORD_WEBHOOK_URL`, `MARGIN_MAX_RATIO`, `MARGIN_MIN_RATIO`, `MAX_SAME_DIRECTION` (default 2), `NO_ML_FILTER` (default `true` — ML disabled due to insufficient feature alpha).
 
 `src/config.py` uses `@dataclass` with `__post_init__` to load and validate all env vars. Per-symbol strategy params supported via `SymbolStrategyParams` — override with `ATR_SL_MULT_{SYMBOL}`, `ATR_TP_MULT_{SYMBOL}`, `SIGNAL_THRESHOLD_{SYMBOL}`, `ADX_THRESHOLD_{SYMBOL}`, `VOL_MULTIPLIER_{SYMBOL}`. Access via `config.get_symbol_params(symbol)`.
 
@@ -147,4 +147,5 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-21 | `ml-pipeline-fixes` (C1,C3,I1,I3,I4,I5) | Completed |
 | 2026-03-21 | `training-threshold-relaxation` (plan) | Completed |
 | 2026-03-21 | `purged-gap-and-ablation` (plan) | Completed |
+| 2026-03-21 | `ml-validation-result` | ML OFF > ML ON 확정, SOL/DOGE/TRX 제외, XRP 단독 운영 |
 | 2026-03-21 | `ml-validation-pipeline` (plan) | Completed |
