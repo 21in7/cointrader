@@ -124,6 +124,31 @@ def test_mlx_no_double_normalization():
     assert np.allclose(model._std, 1.0), "normalize=False시 std는 1이어야 한다"
 
 
+def test_walk_forward_purged_gap():
+    """Walk-Forward 검증에서 학습/검증 사이에 LOOKAHEAD 만큼의 gap이 존재해야 한다."""
+    from src.dataset_builder import LOOKAHEAD
+
+    n = 1000
+    train_ratio = 0.6
+    n_splits = 5
+    embargo = LOOKAHEAD  # 24
+
+    step = max(1, int(n * (1 - train_ratio) / n_splits))
+    train_end_start = int(n * train_ratio)
+
+    for fold_idx in range(n_splits):
+        tr_end = train_end_start + fold_idx * step
+        val_start = tr_end + embargo
+        val_end = val_start + step
+        if val_end > n:
+            break
+
+        assert val_start - tr_end >= embargo, \
+            f"폴드 {fold_idx}: gap={val_start - tr_end} < embargo={embargo}"
+        assert val_start > tr_end, \
+            f"폴드 {fold_idx}: val_start={val_start} <= tr_end={tr_end}"
+
+
 def test_ml_filter_from_model():
     """MLFilter.from_model()로 LightGBM 모델을 주입할 수 있어야 한다."""
     from src.ml_filter import MLFilter

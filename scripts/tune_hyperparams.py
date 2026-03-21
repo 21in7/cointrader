@@ -150,14 +150,17 @@ def _walk_forward_cv(
     fold_n_pos: list[int] = []
     scores_so_far: list[float] = []
 
+    from src.dataset_builder import LOOKAHEAD
+
     for fold_idx in range(n_splits):
         tr_end = train_end_start + fold_idx * step
-        val_end = tr_end + step
+        val_start = tr_end + LOOKAHEAD  # purged gap
+        val_end = val_start + step
         if val_end > n:
             break
 
         X_tr, y_tr, w_tr = X[:tr_end], y[:tr_end], w[:tr_end]
-        X_val, y_val = X[tr_end:val_end], y[tr_end:val_end]
+        X_val, y_val = X[val_start:val_end], y[val_start:val_end]
 
         # 계층적 샘플링: signal 전수 유지, HOLD negative만 양성 수 만큼
         source_tr = source[:tr_end]

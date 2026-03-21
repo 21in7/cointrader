@@ -386,14 +386,17 @@ def walk_forward_auc(
 
     aucs = []
     fold_metrics = []
+    from src.dataset_builder import LOOKAHEAD
+
     for i in range(n_splits):
         tr_end = train_end_start + i * step
-        val_end = tr_end + step
+        val_start = tr_end + LOOKAHEAD  # purged gap: 레이블 누수 방지
+        val_end = val_start + step
         if val_end > n:
             break
 
         X_tr, y_tr, w_tr = X[:tr_end], y[:tr_end], w[:tr_end]
-        X_val, y_val = X[tr_end:val_end], y[tr_end:val_end]
+        X_val, y_val = X[val_start:val_end], y[val_start:val_end]
 
         source_tr = source[:tr_end]
         idx = stratified_undersample(y_tr, source_tr, seed=42)
@@ -421,7 +424,7 @@ def walk_forward_auc(
         fold_metrics.append({"auc": auc, "precision": f_prec, "recall": f_rec, "threshold": f_thr})
         print(
             f"  폴드 {i+1}/{n_splits}: 학습={tr_end}개, "
-            f"검증={tr_end}~{val_end} ({step}개), AUC={auc:.4f}  |  "
+            f"검증={val_start}~{val_end} ({step}개, embargo={LOOKAHEAD}), AUC={auc:.4f}  |  "
             f"Thr={f_thr:.4f}  Prec={f_prec:.3f}  Rec={f_rec:.3f}"
         )
 
@@ -542,6 +545,135 @@ def compare(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: s
         print(f"  {feat_name:<25} {imp_val:>6}{marker}")
 
 
+def ablation(
+    data_path: str,
+    time_weight_decay: float = 2.0,
+    n_splits: int = 5,
+    train_ratio: float = 0.6,
+    tuned_params_path: str | None = None,
+    atr_sl_mult: float = 2.0,
+    atr_tp_mult: float = 2.0,
+) -> None:
+    """Feature ablation 실험: signal_strength/side 의존도 진단.
+
+    실험 A: 전체 피처 (baseline)
+    실험 B: signal_strength 제거
+    실험 C: signal_strength + side 제거
+    """
+    from src.dataset_builder import LOOKAHEAD
+
+    print(f"\n{'='*64}")
+    print(f"  Feature Ablation 실험 ({n_splits}폴드 Walk-Forward, embargo={LOOKAHEAD})")
+    print(f"{'='*64}")
+
+    df_raw = pd.read_parquet(data_path)
+    base_cols = ["open", "high", "low", "close", "volume"]
+    btc_df = eth_df = None
+    if "close_btc" in df_raw.columns:
+        btc_df = df_raw[[c + "_btc" for c in base_cols]].copy()
+        btc_df.columns = base_cols
+    if "close_eth" in df_raw.columns:
+        eth_df = df_raw[[c + "_eth" for c in base_cols]].copy()
+        eth_df.columns = base_cols
+    df = df_raw[base_cols].copy()
+
+    dataset = generate_dataset_vectorized(
+        df, btc_df=btc_df, eth_df=eth_df,
+        time_weight_decay=time_weight_decay,
+        atr_sl_mult=atr_sl_mult,
+        atr_tp_mult=atr_tp_mult,
+    )
+    actual_feature_cols = [c for c in FEATURE_COLS if c in dataset.columns]
+    y = dataset["label"].values
+    w = dataset["sample_weight"].values
+    n = len(dataset)
+    source = dataset["source"].values if "source" in dataset.columns else np.full(n, "signal")
+
+    lgbm_params, weight_scale = _load_lgbm_params(tuned_params_path)
+    w = (w * weight_scale).astype(np.float32)
+
+    experiments = {
+        "A (전체 피처)": actual_feature_cols,
+        "B (-signal_strength)": [c for c in actual_feature_cols if c != "signal_strength"],
+        "C (-signal_strength, -side)": [c for c in actual_feature_cols if c not in ("signal_strength", "side")],
+    }
+
+    results = {}
+    for exp_name, cols in experiments.items():
+        X = dataset[cols].values
+        step = max(1, int(n * (1 - train_ratio) / n_splits))
+        train_end_start = int(n * train_ratio)
+
+        fold_aucs = []
+        fold_importances = []
+        for fold_idx in range(n_splits):
+            tr_end = train_end_start + fold_idx * step
+            val_start = tr_end + LOOKAHEAD
+            val_end = val_start + step
+            if val_end > n:
+                break
+
+            X_tr, y_tr, w_tr = X[:tr_end], y[:tr_end], w[:tr_end]
+            X_val, y_val = X[val_start:val_end], y[val_start:val_end]
+
+            source_tr = source[:tr_end]
+            idx = stratified_undersample(y_tr, source_tr, seed=42)
+
+            model = lgb.LGBMClassifier(**lgbm_params, random_state=42, verbose=-1)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                model.fit(X_tr[idx], y_tr[idx], sample_weight=w_tr[idx])
+
+            proba = model.predict_proba(X_val)[:, 1]
+            auc = roc_auc_score(y_val, proba) if len(np.unique(y_val)) > 1 else 0.5
+            fold_aucs.append(auc)
+            fold_importances.append(dict(zip(cols, model.feature_importances_)))
+
+        mean_auc = float(np.mean(fold_aucs))
+        std_auc = float(np.std(fold_aucs))
+        results[exp_name] = {
+            "mean_auc": mean_auc,
+            "std_auc": std_auc,
+            "fold_aucs": fold_aucs,
+            "importances": fold_importances,
+        }
+        print(f"\n  {exp_name}: AUC={mean_auc:.4f} ± {std_auc:.4f}")
+        print(f"    폴드별: {[round(a, 4) for a in fold_aucs]}")
+
+        if exp_name.startswith("A"):
+            avg_imp = {}
+            for imp in fold_importances:
+                for k, v in imp.items():
+                    avg_imp[k] = avg_imp.get(k, 0) + v / len(fold_importances)
+            top10 = sorted(avg_imp.items(), key=lambda x: x[1], reverse=True)[:10]
+            print(f"    Feature Importance Top 10:")
+            for feat_name, imp_val in top10:
+                marker = " <- 주의" if feat_name in ("signal_strength", "side") else ""
+                print(f"      {feat_name:<25} {imp_val:>8.1f}{marker}")
+
+    auc_a = results["A (전체 피처)"]["mean_auc"]
+    auc_b = results["B (-signal_strength)"]["mean_auc"]
+    auc_c = results["C (-signal_strength, -side)"]["mean_auc"]
+    drop_ab = auc_a - auc_b
+    drop_ac = auc_a - auc_c
+
+    print(f"\n{'='*64}")
+    print(f"  드롭 분석")
+    print(f"{'='*64}")
+    print(f"  A -> B (signal_strength 제거): {drop_ab:+.4f}")
+    print(f"  A -> C (signal_strength + side 제거): {drop_ac:+.4f}")
+    print(f"{'─'*64}")
+
+    if drop_ac <= 0.05:
+        verdict = "ML 필터 가치 있음 (다른 피처가 충분히 기여)"
+    elif drop_ac <= 0.10:
+        verdict = "조건부 투입 (signal_strength 의존도 높지만 다른 피처도 기여)"
+    else:
+        verdict = "재설계 필요 (사실상 점수 재확인기)"
+    print(f"  판정: {verdict}")
+    print(f"{'='*64}\n")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default=None)
@@ -557,6 +689,8 @@ def main():
         "--tuned-params", type=str, default=None,
         help="Optuna 튜닝 결과 JSON 경로 (지정 시 기본 파라미터를 덮어씀)",
     )
+    parser.add_argument("--ablation", action="store_true",
+                        help="Feature ablation 실험 (signal_strength/side 의존도 진단)")
     parser.add_argument("--compare", action="store_true",
                         help="OI 파생 피처 추가 전후 A/B 성능 비교")
     parser.add_argument("--sl-mult", type=float, default=2.0, help="SL ATR 배수 (기본 2.0)")
@@ -577,7 +711,13 @@ def main():
     elif args.data is None:
         args.data = "data/combined_15m.parquet"
 
-    if args.compare:
+    if args.ablation:
+        ablation(
+            args.data, time_weight_decay=args.decay,
+            tuned_params_path=args.tuned_params,
+            atr_sl_mult=args.sl_mult, atr_tp_mult=args.tp_mult,
+        )
+    elif args.compare:
         compare(args.data, time_weight_decay=args.decay, tuned_params_path=args.tuned_params,
                 atr_sl_mult=args.sl_mult, atr_tp_mult=args.tp_mult)
     elif args.wf:

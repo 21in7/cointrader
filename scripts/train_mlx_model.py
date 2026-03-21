@@ -191,17 +191,20 @@ def walk_forward_auc(
     train_end_start = int(n * train_ratio)
 
     aucs = []
+    from src.dataset_builder import LOOKAHEAD
+
     for i in range(n_splits):
         tr_end = train_end_start + i * step
-        val_end = tr_end + step
+        val_start = tr_end + LOOKAHEAD  # purged gap
+        val_end = val_start + step
         if val_end > n:
             break
 
         X_tr_raw = X_all[:tr_end]
         y_tr = y_all[:tr_end]
         w_tr = w_all[:tr_end]
-        X_val_raw = X_all[tr_end:val_end]
-        y_val = y_all[tr_end:val_end]
+        X_val_raw = X_all[val_start:val_end]
+        y_val = y_all[val_start:val_end]
 
         source_tr = source_all[:tr_end]
         bal_idx = stratified_undersample(y_tr, source_tr, seed=42)
@@ -221,14 +224,13 @@ def walk_forward_auc(
             batch_size=256,
         )
         model.fit(X_tr_df, pd.Series(y_tr_bal), sample_weight=w_tr_bal)
-        # fit() handles normalization internally, predict_proba() applies same mean/std
 
         proba = model.predict_proba(X_val_df)
         auc = roc_auc_score(y_val, proba) if len(np.unique(y_val)) > 1 else 0.5
         aucs.append(auc)
         print(
             f"  폴드 {i+1}/{n_splits}: 학습={tr_end}개, "
-            f"검증={tr_end}~{val_end} ({step}개), AUC={auc:.4f}"
+            f"검증={val_start}~{val_end} ({step}개, embargo={LOOKAHEAD}), AUC={auc:.4f}"
         )
 
     print(f"\n  Walk-Forward 평균 AUC: {np.mean(aucs):.4f} ± {np.std(aucs):.4f}")
