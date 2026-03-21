@@ -279,6 +279,7 @@ export default function App() {
   const [botStatus, setBotStatus] = useState({});
   const [trades, setTrades] = useState([]);
   const [tradesTotal, setTradesTotal] = useState(0);
+  const [tradesPage, setTradesPage] = useState(0);
   const [daily, setDaily] = useState([]);
   const [candles, setCandles] = useState([]);
 
@@ -291,7 +292,7 @@ export default function App() {
       api("/symbols"),
       api(`/stats${sym}`),
       api(`/position${sym}`),
-      api(`/trades${sym}${sym ? "&" : "?"}limit=50`),
+      api(`/trades${sym}${sym ? "&" : "?"}limit=50&offset=${tradesPage * 50}`),
       api(`/daily${sym}`),
       api(`/candles?symbol=${symRequired}&limit=96`),
     ]);
@@ -315,7 +316,7 @@ export default function App() {
     }
     if (dRes?.daily) setDaily(dRes.daily);
     if (cRes?.candles) setCandles(cRes.candles);
-  }, [selectedSymbol]);
+  }, [selectedSymbol, tradesPage]);
 
   useEffect(() => {
     fetchAll();
@@ -460,7 +461,7 @@ export default function App() {
           padding: 4, width: "fit-content",
         }}>
           <button
-            onClick={() => setSelectedSymbol(null)}
+            onClick={() => { setSelectedSymbol(null); setTradesPage(0); }}
             style={{
               background: selectedSymbol === null ? "rgba(99,102,241,0.15)" : "transparent",
               border: "none",
@@ -472,7 +473,7 @@ export default function App() {
           {symbols.map((sym) => (
             <button
               key={sym}
-              onClick={() => setSelectedSymbol(sym)}
+              onClick={() => { setSelectedSymbol(sym); setTradesPage(0); }}
               style={{
                 background: selectedSymbol === sym ? "rgba(99,102,241,0.15)" : "transparent",
                 border: "none",
@@ -621,6 +622,38 @@ export default function App() {
                 onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
               />
             ))}
+            {tradesTotal > 50 && (
+              <div style={{
+                display: "flex", justifyContent: "center", alignItems: "center",
+                gap: 12, marginTop: 14,
+              }}>
+                <button
+                  disabled={tradesPage === 0}
+                  onClick={() => setTradesPage((p) => Math.max(0, p - 1))}
+                  style={{
+                    fontSize: 11, fontFamily: S.mono, padding: "6px 14px",
+                    background: tradesPage === 0 ? "transparent" : "rgba(99,102,241,0.1)",
+                    color: tradesPage === 0 ? S.text4 : S.indigo,
+                    border: `1px solid ${tradesPage === 0 ? S.border : "rgba(99,102,241,0.2)"}`,
+                    borderRadius: 8, cursor: tradesPage === 0 ? "default" : "pointer",
+                  }}
+                >← 이전</button>
+                <span style={{ fontSize: 11, color: S.text3, fontFamily: S.mono }}>
+                  {tradesPage * 50 + 1}–{Math.min((tradesPage + 1) * 50, tradesTotal)} / {tradesTotal}
+                </span>
+                <button
+                  disabled={(tradesPage + 1) * 50 >= tradesTotal}
+                  onClick={() => setTradesPage((p) => p + 1)}
+                  style={{
+                    fontSize: 11, fontFamily: S.mono, padding: "6px 14px",
+                    background: (tradesPage + 1) * 50 >= tradesTotal ? "transparent" : "rgba(99,102,241,0.1)",
+                    color: (tradesPage + 1) * 50 >= tradesTotal ? S.text4 : S.indigo,
+                    border: `1px solid ${(tradesPage + 1) * 50 >= tradesTotal ? S.border : "rgba(99,102,241,0.2)"}`,
+                    borderRadius: 8, cursor: (tradesPage + 1) * 50 >= tradesTotal ? "default" : "pointer",
+                  }}
+                >다음 →</button>
+              </div>
+            )}
           </div>
         )}
 
