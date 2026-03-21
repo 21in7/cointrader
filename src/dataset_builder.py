@@ -323,6 +323,8 @@ def _calc_labels_vectorized(
     d: pd.DataFrame,
     feat: pd.DataFrame,
     sig_idx: np.ndarray,
+    atr_sl_mult: float = ATR_SL_MULT,
+    atr_tp_mult: float = ATR_TP_MULT,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     label_builder.py build_labels() 로직을 numpy 2D 배열로 벡터화한다.
@@ -348,11 +350,11 @@ def _calc_labels_vectorized(
             continue
 
         if signal == "LONG":
-            sl = entry - atr * ATR_SL_MULT
-            tp = entry + atr * ATR_TP_MULT
+            sl = entry - atr * atr_sl_mult
+            tp = entry + atr * atr_tp_mult
         else:
-            sl = entry + atr * ATR_SL_MULT
-            tp = entry - atr * ATR_TP_MULT
+            sl = entry + atr * atr_sl_mult
+            tp = entry - atr * atr_tp_mult
 
         end = min(idx + 1 + LOOKAHEAD, n_total)
         fut_high = highs[idx + 1 : end]
@@ -391,6 +393,8 @@ def generate_dataset_vectorized(
     signal_threshold: int = 3,
     adx_threshold: float = 25,
     volume_multiplier: float = 2.5,
+    atr_sl_mult: float = ATR_SL_MULT,
+    atr_tp_mult: float = ATR_TP_MULT,
 ) -> pd.DataFrame:
     """
     전체 시계열을 1회 계산해 학습 데이터셋을 생성한다.
@@ -435,7 +439,10 @@ def generate_dataset_vectorized(
     print(f"  신호 발생 인덱스: {len(sig_idx):,}개")
 
     print("  [3/3] 레이블 계산...")
-    labels, valid_mask = _calc_labels_vectorized(d, feat_all, sig_idx)
+    labels, valid_mask = _calc_labels_vectorized(
+        d, feat_all, sig_idx,
+        atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult,
+    )
 
     final_sig_idx = sig_idx[valid_mask]
     available_feature_cols = [c for c in FEATURE_COLS if c in feat_all.columns]
