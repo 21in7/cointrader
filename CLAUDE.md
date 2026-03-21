@@ -147,3 +147,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-21 | `ml-pipeline-fixes` (C1,C3,I1,I3,I4,I5) | Completed |
 | 2026-03-21 | `training-threshold-relaxation` (plan) | Completed |
 | 2026-03-21 | `purged-gap-and-ablation` (plan) | Completed |
+| 2026-03-21 | `ml-validation-pipeline` (plan) | Completed |
