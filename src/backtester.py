@@ -144,6 +144,11 @@ class Position:
 
 # ── 동기 RiskManager ─────────────────────────────────────────────────
 class BacktestRiskManager:
+    # Kill Switch 상수 (bot.py와 동일)
+    _FAST_KILL_STREAK = 8
+    _SLOW_KILL_WINDOW = 15
+    _SLOW_KILL_PF_THRESHOLD = 0.75
+
     def __init__(self, cfg: BacktestConfig):
         self.cfg = cfg
         self.daily_pnl: float = 0.0
@@ -151,6 +156,8 @@ class BacktestRiskManager:
         self.base_balance: float = cfg.initial_balance
         self.open_positions: dict[str, str] = {}  # {symbol: side}
         self._current_date: str | None = None
+        self._trade_history: list[float] = []  # 최근 net_pnl 기록
+        self._killed: bool = False
 
     def new_day(self, date_str: str):
         if self._current_date != date_str:
@@ -158,11 +165,30 @@ class BacktestRiskManager:
             self.daily_pnl = 0.0
 
     def is_trading_allowed(self) -> bool:
+        if self._killed:
+            return False
         if self.initial_balance <= 0:
             return True
         if self.daily_pnl < 0 and abs(self.daily_pnl) / self.initial_balance >= self.cfg.max_daily_loss_pct:
             return False
         return True
+
+    def record_trade(self, net_pnl: float):
+        """거래 기록 후 Kill Switch 검사."""
+        self._trade_history.append(net_pnl)
+        # Fast Kill: 8연속 순손실
+        if len(self._trade_history) >= self._FAST_KILL_STREAK:
+            recent = self._trade_history[-self._FAST_KILL_STREAK:]
+            if all(p < 0 for p in recent):
+                self._killed = True
+                return
+        # Slow Kill: 최근 15거래 PF < 0.75
+        if len(self._trade_history) >= self._SLOW_KILL_WINDOW:
+            recent = self._trade_history[-self._SLOW_KILL_WINDOW:]
+            gross_profit = sum(p for p in recent if p > 0)
+            gross_loss = abs(sum(p for p in recent if p < 0))
+            if gross_loss > 0 and gross_profit / gross_loss < self._SLOW_KILL_PF_THRESHOLD:
+                self._killed = True
 
     def can_open(self, symbol: str, side: str) -> bool:
         if len(self.open_positions) >= self.cfg.max_positions:
@@ -180,6 +206,7 @@ class BacktestRiskManager:
     def close(self, symbol: str, pnl: float):
         self.open_positions.pop(symbol, None)
         self.daily_pnl += pnl
+        self.record_trade(pnl)
 
     def get_dynamic_margin_ratio(self, balance: float) -> float:
         ratio = self.cfg.margin_max_ratio - (
