@@ -54,8 +54,6 @@ def _cgroup_cpu_count() -> int:
 
 
 LOOKAHEAD = 24  # 15분봉 × 24 = 6시간 (dataset_builder.py와 동기화)
-ATR_SL_MULT = 1.5
-ATR_TP_MULT = 3.0
 MODEL_PATH = Path("models/lgbm_filter.pkl")
 PREV_MODEL_PATH = Path("models/lgbm_filter_prev.pkl")
 LOG_PATH = Path("models/training_log.json")
@@ -63,6 +61,8 @@ LOG_PATH = Path("models/training_log.json")
 
 def _process_index(args: tuple) -> dict | None:
     """단일 인덱스에 대해 피처+레이블을 계산한다. Pool worker 함수."""
+    ATR_SL_MULT = 1.5  # legacy values
+    ATR_TP_MULT = 3.0
     i, df_values, df_columns = args
     df = pd.DataFrame(df_values, columns=df_columns)
 
@@ -191,7 +191,7 @@ def _load_lgbm_params(tuned_params_path: str | None) -> tuple[dict, float]:
     return lgbm_params, weight_scale
 
 
-def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str | None = None):
+def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str | None = None, atr_sl_mult: float = 2.0, atr_tp_mult: float = 2.0):
     print(f"데이터 로드: {data_path}")
     df_raw = pd.read_parquet(data_path)
     print(f"캔들 수: {len(df_raw)}, 컬럼: {list(df_raw.columns)}")
@@ -218,6 +218,8 @@ def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str
         df, btc_df=btc_df, eth_df=eth_df,
         time_weight_decay=time_weight_decay,
         negative_ratio=5,
+        atr_sl_mult=atr_sl_mult,
+        atr_tp_mult=atr_tp_mult,
     )
 
     if dataset.empty or "label" not in dataset.columns:
@@ -335,6 +337,8 @@ def walk_forward_auc(
     n_splits: int = 5,
     train_ratio: float = 0.6,
     tuned_params_path: str | None = None,
+    atr_sl_mult: float = 2.0,
+    atr_tp_mult: float = 2.0,
 ) -> None:
     """Walk-Forward 검증: 슬라이딩 윈도우로 n_splits번 학습/검증 반복.
 
@@ -359,6 +363,8 @@ def walk_forward_auc(
         df, btc_df=btc_df, eth_df=eth_df,
         time_weight_decay=time_weight_decay,
         negative_ratio=5,
+        atr_sl_mult=atr_sl_mult,
+        atr_tp_mult=atr_tp_mult,
     )
     actual_feature_cols = [c for c in FEATURE_COLS if c in dataset.columns]
     X = dataset[actual_feature_cols].values
@@ -422,7 +428,7 @@ def walk_forward_auc(
     print(f"  폴드별: {[round(a, 4) for a in aucs]}")
 
 
-def compare(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str | None = None):
+def compare(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str | None = None, atr_sl_mult: float = 2.0, atr_tp_mult: float = 2.0):
     """기존 피처 vs OI 파생 피처 추가 버전 A/B 비교."""
     import warnings
 
@@ -449,6 +455,8 @@ def compare(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: s
         df, btc_df=btc_df, eth_df=eth_df,
         time_weight_decay=time_weight_decay,
         negative_ratio=5,
+        atr_sl_mult=atr_sl_mult,
+        atr_tp_mult=atr_tp_mult,
     )
 
     if dataset.empty:
@@ -546,6 +554,8 @@ def main():
     )
     parser.add_argument("--compare", action="store_true",
                         help="OI 파생 피처 추가 전후 A/B 성능 비교")
+    parser.add_argument("--sl-mult", type=float, default=2.0, help="SL ATR 배수 (기본 2.0)")
+    parser.add_argument("--tp-mult", type=float, default=2.0, help="TP ATR 배수 (기본 2.0)")
     args = parser.parse_args()
 
     # --symbol 모드: 심볼별 디렉토리 경로 자동 결정
@@ -563,16 +573,20 @@ def main():
         args.data = "data/combined_15m.parquet"
 
     if args.compare:
-        compare(args.data, time_weight_decay=args.decay, tuned_params_path=args.tuned_params)
+        compare(args.data, time_weight_decay=args.decay, tuned_params_path=args.tuned_params,
+                atr_sl_mult=args.sl_mult, atr_tp_mult=args.tp_mult)
     elif args.wf:
         walk_forward_auc(
             args.data,
             time_weight_decay=args.decay,
             n_splits=args.wf_splits,
             tuned_params_path=args.tuned_params,
+            atr_sl_mult=args.sl_mult,
+            atr_tp_mult=args.tp_mult,
         )
     else:
-        train(args.data, time_weight_decay=args.decay, tuned_params_path=args.tuned_params)
+        train(args.data, time_weight_decay=args.decay, tuned_params_path=args.tuned_params,
+              atr_sl_mult=args.sl_mult, atr_tp_mult=args.tp_mult)
 
 
 if __name__ == "__main__":

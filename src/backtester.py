@@ -743,6 +743,8 @@ class WalkForwardBacktester:
                 signal_threshold=self.cfg.signal_threshold,
                 adx_threshold=self.cfg.adx_threshold,
                 volume_multiplier=self.cfg.volume_multiplier,
+                atr_sl_mult=self.cfg.atr_sl_mult,
+                atr_tp_mult=self.cfg.atr_tp_mult,
             )
         except Exception as e:
             logger.warning(f"  [{symbol}] 데이터셋 생성 실패: {e}")
