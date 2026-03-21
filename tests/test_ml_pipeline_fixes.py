@@ -77,3 +77,26 @@ def test_equity_curve_includes_unrealized_pnl():
 
     last = bt.equity_curve[-1]
     assert last["equity"] == 1050.0, f"Expected 1050.0 (1000+50), got {last['equity']}"
+
+
+def test_mlx_no_double_normalization():
+    """MLXFilter.fit()에 normalize=False를 전달하면 내부 정규화를 건너뛰어야 한다."""
+    pytest.importorskip("mlx.core")
+    import numpy as np
+    import pandas as pd
+    from src.mlx_filter import MLXFilter
+    from src.ml_features import FEATURE_COLS
+
+    n_features = len(FEATURE_COLS)
+    rng = np.random.default_rng(42)
+    X = pd.DataFrame(
+        rng.standard_normal((100, n_features)).astype(np.float32),
+        columns=FEATURE_COLS,
+    )
+    y = pd.Series(rng.integers(0, 2, 100).astype(np.float32))
+
+    model = MLXFilter(input_dim=n_features, hidden_dim=16, epochs=1, batch_size=32)
+    model.fit(X, y, normalize=False)
+
+    assert np.allclose(model._mean, 0.0), "normalize=False시 mean은 0이어야 한다"
+    assert np.allclose(model._std, 1.0), "normalize=False시 std는 1이어야 한다"
