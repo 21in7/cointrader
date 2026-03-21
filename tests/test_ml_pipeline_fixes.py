@@ -43,12 +43,12 @@ def test_sltp_params_are_passed_through(signal_df):
 
 
 def test_default_sltp_backward_compatible(signal_df):
-    """SL/TP 파라미터 미지정 시 기존 기본값(1.5, 2.0)으로 동작해야 한다."""
+    """SL/TP 파라미터 미지정 시 기본값(2.0, 2.0)으로 동작해야 한다."""
     r_default = generate_dataset_vectorized(
         signal_df, adx_threshold=0, volume_multiplier=1.5,
     )
     r_explicit = generate_dataset_vectorized(
-        signal_df, atr_sl_mult=1.5, atr_tp_mult=2.0,
+        signal_df, atr_sl_mult=2.0, atr_tp_mult=2.0,
         adx_threshold=0, volume_multiplier=1.5,
     )
     if len(r_default) > 0:

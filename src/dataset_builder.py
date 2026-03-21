@@ -12,7 +12,7 @@ import pandas_ta as ta
 from src.ml_features import FEATURE_COLS
 
 LOOKAHEAD    = 24   # 15분봉 × 24 = 6시간 뷰
-ATR_SL_MULT  = 1.5
+ATR_SL_MULT  = 2.0  # config.py 기본값과 동일 (서빙 환경 일치)
 ATR_TP_MULT  = 2.0
 WARMUP       = 60   # 15분봉 기준 60캔들 = 15시간 (지표 안정화 충분)
 
