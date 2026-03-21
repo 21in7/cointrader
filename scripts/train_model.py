@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import argparse
 import json
 import math
+import warnings
 from datetime import datetime
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
@@ -104,7 +105,11 @@ def _process_index(args: tuple) -> dict | None:
 
 
 def generate_dataset(df: pd.DataFrame, n_jobs: int | None = None) -> pd.DataFrame:
-    """신호 발생 시점마다 피처와 레이블을 병렬로 생성한다."""
+    """[Deprecated] generate_dataset_vectorized()를 사용할 것."""
+    warnings.warn(
+        "generate_dataset()는 deprecated. generate_dataset_vectorized()를 사용하세요.",
+        DeprecationWarning, stacklevel=2,
+    )
     total = len(df)
     indices = range(60, total - LOOKAHEAD)
 

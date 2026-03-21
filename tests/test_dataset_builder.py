@@ -73,25 +73,6 @@ def test_generate_dataset_vectorized_with_btc_eth_has_21_feature_cols():
         assert "label" in result.columns
 
 
-def test_matches_original_generate_dataset(sample_df):
-    """벡터화 버전과 기존 버전의 샘플 수가 유사해야 한다.
-
-    벡터화 버전은 전체 시계열로 지표를 1회 계산하고, 기존 버전은 61행 슬라이딩
-    윈도우로 매번 재계산한다. EMA 등 지수 이동평균은 초기값에 따라 수렴 속도가
-    달라지므로 두 방식의 신호 수는 완전히 동일하지 않을 수 있다. ±50% 범위를
-    허용한다.
-    """
-    from scripts.train_model import generate_dataset
-    orig = generate_dataset(sample_df, n_jobs=1)
-    vec  = generate_dataset_vectorized(sample_df)
-    if len(orig) == 0:
-        assert len(vec) == 0
-        return
-    ratio = len(vec) / len(orig)
-    assert 0.5 <= ratio <= 2.0, (
-        f"샘플 수 차이가 너무 큼: 벡터화={len(vec)}, 기존={len(orig)}, 비율={ratio:.2f}"
-    )
-
 
 def test_epsilon_no_division_by_zero():
     """bb_range=0, close=0, vol_ma20=0 극단값에서 nan/inf가 발생하지 않아야 한다."""
