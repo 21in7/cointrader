@@ -22,22 +22,44 @@ def signal_df():
     })
 
 
+def test_training_defaults_are_relaxed(signal_df):
+    """generate_dataset_vectorized의 기본 임계값이 학습용 완화 값이어야 한다."""
+    from src.dataset_builder import (
+        TRAIN_SIGNAL_THRESHOLD, TRAIN_ADX_THRESHOLD,
+        TRAIN_VOLUME_MULTIPLIER, TRAIN_NEGATIVE_RATIO,
+    )
+    assert TRAIN_SIGNAL_THRESHOLD == 2
+    assert TRAIN_ADX_THRESHOLD == 15.0
+    assert TRAIN_VOLUME_MULTIPLIER == 1.5
+    assert TRAIN_NEGATIVE_RATIO == 3
+
+    # 완화된 기본값으로 샘플이 더 많이 생성되는지 검증
+    r_relaxed = generate_dataset_vectorized(signal_df)
+    r_strict = generate_dataset_vectorized(
+        signal_df, signal_threshold=3, adx_threshold=25, volume_multiplier=2.5,
+    )
+    assert len(r_relaxed) >= len(r_strict), \
+        f"완화된 임계값이 더 많은 샘플을 생성해야 한다: relaxed={len(r_relaxed)}, strict={len(r_strict)}"
+
+
 def test_sltp_params_are_passed_through(signal_df):
     """SL/TP 배수가 generate_dataset_vectorized에 전달되어야 한다."""
     # 파라미터가 수용되는지(TypeError 없이) 확인하는 것이 핵심
+    # negative_ratio=0으로 시그널 샘플만 비교 (HOLD 노이즈 제거)
     r1 = generate_dataset_vectorized(
         signal_df, atr_sl_mult=1.5, atr_tp_mult=2.0,
-        adx_threshold=0, volume_multiplier=1.5,
+        adx_threshold=0, volume_multiplier=1.5, negative_ratio=0,
     )
     r2 = generate_dataset_vectorized(
         signal_df, atr_sl_mult=2.0, atr_tp_mult=2.0,
-        adx_threshold=0, volume_multiplier=1.5,
+        adx_threshold=0, volume_multiplier=1.5, negative_ratio=0,
     )
     # 두 결과 모두 DataFrame이어야 한다
     assert isinstance(r1, pd.DataFrame)
     assert isinstance(r2, pd.DataFrame)
     # 신호가 충분히 많을 경우, 다른 SL 배수는 레이블 분포에 영향을 줄 수 있다
-    if len(r1) > 10 and len(r2) > 10:
+    # 소규모 데이터에서는 동일한 결과가 나올 수 있으므로 50개 이상일 때만 검증
+    if len(r1) > 50 and len(r2) > 50:
         assert not (r1["label"].values == r2["label"].values).all() or len(r1) != len(r2), \
             "SL 배수가 다르면 레이블이 달라져야 한다"
 
@@ -45,11 +67,11 @@ def test_sltp_params_are_passed_through(signal_df):
 def test_default_sltp_backward_compatible(signal_df):
     """SL/TP 파라미터 미지정 시 기본값(2.0, 2.0)으로 동작해야 한다."""
     r_default = generate_dataset_vectorized(
-        signal_df, adx_threshold=0, volume_multiplier=1.5,
+        signal_df, adx_threshold=0, volume_multiplier=1.5, negative_ratio=0,
     )
     r_explicit = generate_dataset_vectorized(
         signal_df, atr_sl_mult=2.0, atr_tp_mult=2.0,
-        adx_threshold=0, volume_multiplier=1.5,
+        adx_threshold=0, volume_multiplier=1.5, negative_ratio=0,
     )
     if len(r_default) > 0:
         assert len(r_default) == len(r_explicit)

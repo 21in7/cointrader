@@ -64,7 +64,7 @@ def load_dataset(data_path: str, atr_sl_mult: float = 2.0, atr_tp_mult: float = 
     df = df_raw[base_cols].copy()
 
     print("\n데이터셋 생성 중 (1회만 실행)...")
-    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=0.0, negative_ratio=5,
+    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=0.0,
                                           atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult)
 
     if dataset.empty or "label" not in dataset.columns:

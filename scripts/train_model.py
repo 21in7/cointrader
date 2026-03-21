@@ -222,7 +222,7 @@ def train(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: str
     dataset = generate_dataset_vectorized(
         df, btc_df=btc_df, eth_df=eth_df,
         time_weight_decay=time_weight_decay,
-        negative_ratio=5,
+
         atr_sl_mult=atr_sl_mult,
         atr_tp_mult=atr_tp_mult,
     )
@@ -367,7 +367,7 @@ def walk_forward_auc(
     dataset = generate_dataset_vectorized(
         df, btc_df=btc_df, eth_df=eth_df,
         time_weight_decay=time_weight_decay,
-        negative_ratio=5,
+
         atr_sl_mult=atr_sl_mult,
         atr_tp_mult=atr_tp_mult,
     )
@@ -459,7 +459,7 @@ def compare(data_path: str, time_weight_decay: float = 2.0, tuned_params_path: s
     dataset = generate_dataset_vectorized(
         df, btc_df=btc_df, eth_df=eth_df,
         time_weight_decay=time_weight_decay,
-        negative_ratio=5,
+
         atr_sl_mult=atr_sl_mult,
         atr_tp_mult=atr_tp_mult,
     )

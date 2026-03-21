@@ -598,7 +598,7 @@ class WalkForwardConfig(BacktestConfig):
     train_months: int = 6       # 학습 윈도우 (개월)
     test_months: int = 1        # 검증 윈도우 (개월)
     time_weight_decay: float = 2.0
-    negative_ratio: int = 5
+    negative_ratio: int = 3
 
 
 class WalkForwardBacktester:

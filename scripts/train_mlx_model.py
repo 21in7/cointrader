@@ -59,7 +59,7 @@ def train_mlx(data_path: str, time_weight_decay: float = 2.0, atr_sl_mult: float
     print("\n데이터셋 생성 중...")
     t0 = time.perf_counter()
     dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay,
-                                          atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult, negative_ratio=5)
+                                          atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult)
     t1 = time.perf_counter()
     print(f"데이터셋 생성 완료: {t1 - t0:.1f}초, {len(dataset)}개 샘플")
 
@@ -175,7 +175,7 @@ def walk_forward_auc(
 
     dataset = generate_dataset_vectorized(
         df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay,
-        atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult, negative_ratio=5,
+        atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult,
     )
     missing = [c for c in FEATURE_COLS if c not in dataset.columns]
     for col in missing:

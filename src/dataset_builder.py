@@ -16,6 +16,15 @@ ATR_SL_MULT  = 2.0  # config.py 기본값과 동일 (서빙 환경 일치)
 ATR_TP_MULT  = 2.0
 WARMUP       = 60   # 15분봉 기준 60캔들 = 15시간 (지표 안정화 충분)
 
+# ── 학습 전용 기본값 ──────────────────────────────────────────────
+# 실전 봇(config.py)보다 완화된 임계값으로 더 많은 신호를 수집한다.
+# ML 모델이 약한 신호 중에서 좋은 기회를 구분하는 법을 학습한다.
+# 실전 진입은 bot.py의 엄격한 5단 게이트 + ML 필터가 최종 판단.
+TRAIN_SIGNAL_THRESHOLD = 2      # 실전: 3 (config.py)
+TRAIN_ADX_THRESHOLD    = 15.0   # 실전: 25.0
+TRAIN_VOLUME_MULTIPLIER = 1.5   # 실전: 2.5
+TRAIN_NEGATIVE_RATIO   = 3     # HOLD 네거티브 비율 (기존: 5)
+
 
 def _calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """전체 시계열에 기술 지표를 1회 계산한다."""
@@ -56,9 +65,9 @@ def _calc_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 def _calc_signals(
     d: pd.DataFrame,
-    signal_threshold: int = 3,
-    adx_threshold: float = 25,
-    volume_multiplier: float = 2.5,
+    signal_threshold: int = TRAIN_SIGNAL_THRESHOLD,
+    adx_threshold: float = TRAIN_ADX_THRESHOLD,
+    volume_multiplier: float = TRAIN_VOLUME_MULTIPLIER,
 ) -> np.ndarray:
     """
     indicators.py get_signal() 로직을 numpy 배열 연산으로 재현한다.
@@ -389,10 +398,10 @@ def generate_dataset_vectorized(
     btc_df: pd.DataFrame | None = None,
     eth_df: pd.DataFrame | None = None,
     time_weight_decay: float = 0.0,
-    negative_ratio: int = 0,
-    signal_threshold: int = 3,
-    adx_threshold: float = 25,
-    volume_multiplier: float = 2.5,
+    negative_ratio: int = TRAIN_NEGATIVE_RATIO,
+    signal_threshold: int = TRAIN_SIGNAL_THRESHOLD,
+    adx_threshold: float = TRAIN_ADX_THRESHOLD,
+    volume_multiplier: float = TRAIN_VOLUME_MULTIPLIER,
     atr_sl_mult: float = ATR_SL_MULT,
     atr_tp_mult: float = ATR_TP_MULT,
 ) -> pd.DataFrame:
