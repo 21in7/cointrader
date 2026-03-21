@@ -141,18 +141,24 @@ class MLXFilter:
         X: pd.DataFrame,
         y: pd.Series,
         sample_weight: np.ndarray | None = None,
+        normalize: bool = True,
     ) -> "MLXFilter":
         X_np = X[FEATURE_COLS].values.astype(np.float32)
         y_np = y.values.astype(np.float32)
 
-        # nan-safe 정규화: nanmean/nanstd로 통계 계산 후 nan → 0.0 대치
-        # (z-score 후 0.0 = 평균값, 신경망에 줄 수 있는 가장 무난한 결측 대치값)
-        mean_vals  = np.nanmean(X_np, axis=0)
-        self._mean = np.nan_to_num(mean_vals, nan=0.0)   # 전체-NaN 컬럼 → 평균 0.0
-        std_vals   = np.nanstd(X_np, axis=0)
-        self._std  = np.nan_to_num(std_vals, nan=1.0) + 1e-8  # 전체-NaN 컬럼 → std 1.0
-        X_np = (X_np - self._mean) / self._std
-        X_np = np.nan_to_num(X_np, nan=0.0)
+        if normalize:
+            # nan-safe 정규화: nanmean/nanstd로 통계 계산 후 nan → 0.0 대치
+            # (z-score 후 0.0 = 평균값, 신경망에 줄 수 있는 가장 무난한 결측 대치값)
+            mean_vals  = np.nanmean(X_np, axis=0)
+            self._mean = np.nan_to_num(mean_vals, nan=0.0)   # 전체-NaN 컬럼 → 평균 0.0
+            std_vals   = np.nanstd(X_np, axis=0)
+            self._std  = np.nan_to_num(std_vals, nan=1.0) + 1e-8  # 전체-NaN 컬럼 → std 1.0
+            X_np = (X_np - self._mean) / self._std
+            X_np = np.nan_to_num(X_np, nan=0.0)
+        else:
+            self._mean = np.zeros(X_np.shape[1], dtype=np.float32)
+            self._std = np.ones(X_np.shape[1], dtype=np.float32)
+            X_np = np.nan_to_num(X_np, nan=0.0)
 
         w_np = sample_weight.astype(np.float32) if sample_weight is not None else None
 

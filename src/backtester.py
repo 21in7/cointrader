@@ -317,16 +317,9 @@ class Backtester:
             self.ml_filters = {}
             for sym in self.cfg.symbols:
                 if sym in ml_models and ml_models[sym] is not None:
-                    mf = MLFilter.__new__(MLFilter)
-                    mf._disabled = False
-                    mf._onnx_session = None
-                    mf._lgbm_model = ml_models[sym]
-                    mf._threshold = self.cfg.ml_threshold
-                    mf._onnx_path = Path("/dev/null")
-                    mf._lgbm_path = Path("/dev/null")
-                    mf._loaded_onnx_mtime = 0.0
-                    mf._loaded_lgbm_mtime = 0.0
-                    self.ml_filters[sym] = mf
+                    self.ml_filters[sym] = MLFilter.from_model(
+                        ml_models[sym], threshold=self.cfg.ml_threshold
+                    )
                 else:
                     self.ml_filters[sym] = None
 
@@ -335,6 +328,7 @@ class Backtester:
         logger.info(f"총 이벤트: {len(events):,}개")
 
         # 메인 루프
+        latest_prices: dict[str, float] = {}
         for ts, sym, candle_idx in events:
             date_str = str(ts.date())
             self.risk.new_day(date_str)
@@ -342,9 +336,10 @@ class Backtester:
             df_ind = all_indicators[sym]
             signal = all_signals[sym][candle_idx]
             row = df_ind.iloc[candle_idx]
+            latest_prices[sym] = float(row["close"])
 
             # 에퀴티 기록
-            self._record_equity(ts)
+            self._record_equity(ts, current_prices=latest_prices)
 
             # 1) 일일 손실 체크
             if not self.risk.is_trading_allowed():
@@ -568,12 +563,15 @@ class Backtester:
         }
         self.trades.append(trade)
 
-    def _record_equity(self, ts: pd.Timestamp):
-        # 미실현 PnL 포함 에퀴티
+    def _record_equity(self, ts: pd.Timestamp, current_prices: dict[str, float] | None = None):
         unrealized = 0.0
-        for pos in self.positions.values():
-            # 에퀴티 기록 시점에는 현재가를 알 수 없으므로 entry_price 기준으로 0 처리
-            pass
+        for sym, pos in self.positions.items():
+            price = (current_prices or {}).get(sym)
+            if price is not None:
+                if pos.side == "LONG":
+                    unrealized += (price - pos.entry_price) * pos.quantity
+                else:
+                    unrealized += (pos.entry_price - price) * pos.quantity
         equity = self.balance + unrealized
         self.equity_curve.append({"timestamp": str(ts), "equity": round(equity, 4)})
         if equity > self._peak_equity:
@@ -743,6 +741,8 @@ class WalkForwardBacktester:
                 signal_threshold=self.cfg.signal_threshold,
                 adx_threshold=self.cfg.adx_threshold,
                 volume_multiplier=self.cfg.volume_multiplier,
+                atr_sl_mult=self.cfg.atr_sl_mult,
+                atr_tp_mult=self.cfg.atr_tp_mult,
             )
         except Exception as e:
             logger.warning(f"  [{symbol}] 데이터셋 생성 실패: {e}")

@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score, classification_report
 
-from src.dataset_builder import generate_dataset_vectorized
+from src.dataset_builder import generate_dataset_vectorized, stratified_undersample
 from src.ml_features import FEATURE_COLS
 from src.mlx_filter import MLXFilter
 
@@ -45,7 +45,7 @@ def _split_combined(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame | None
     return xrp_df, btc_df, eth_df
 
 
-def train_mlx(data_path: str, time_weight_decay: float = 2.0) -> float:
+def train_mlx(data_path: str, time_weight_decay: float = 2.0, atr_sl_mult: float = 2.0, atr_tp_mult: float = 2.0) -> float:
     print(f"데이터 로드: {data_path}")
     raw = pd.read_parquet(data_path)
     print(f"캔들 수: {len(raw)}")
@@ -58,7 +58,8 @@ def train_mlx(data_path: str, time_weight_decay: float = 2.0) -> float:
 
     print("\n데이터셋 생성 중...")
     t0 = time.perf_counter()
-    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay)
+    dataset = generate_dataset_vectorized(df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay,
+                                          atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult, negative_ratio=5)
     t1 = time.perf_counter()
     print(f"데이터셋 생성 완료: {t1 - t0:.1f}초, {len(dataset)}개 샘플")
 
@@ -85,16 +86,10 @@ def train_mlx(data_path: str, time_weight_decay: float = 2.0) -> float:
     y_train, y_val = y.iloc[:split], y.iloc[split:]
     w_train = w[:split]
 
-    # --- 클래스 불균형 처리: 언더샘플링 (가중치 인덱스 보존) ---
-    pos_idx = np.where(y_train == 1)[0]
-    neg_idx = np.where(y_train == 0)[0]
-
-    if len(neg_idx) > len(pos_idx):
-        np.random.seed(42)
-        neg_idx = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
-
-    balanced_idx = np.concatenate([pos_idx, neg_idx])
-    np.random.shuffle(balanced_idx)
+    # --- 클래스 불균형 처리: stratified 언더샘플링 (Signal 전수 유지, HOLD만 샘플링) ---
+    source = dataset["source"].values if "source" in dataset.columns else np.full(len(dataset), "signal")
+    source_train = source[:split]
+    balanced_idx = stratified_undersample(y_train.values, source_train, seed=42)
 
     X_train = X_train.iloc[balanced_idx]
     y_train = y_train.iloc[balanced_idx]
@@ -170,6 +165,8 @@ def walk_forward_auc(
     time_weight_decay: float = 2.0,
     n_splits: int = 5,
     train_ratio: float = 0.6,
+    atr_sl_mult: float = 2.0,
+    atr_tp_mult: float = 2.0,
 ) -> None:
     """Walk-Forward 검증: 슬라이딩 윈도우로 n_splits번 학습/검증 반복."""
     print(f"\n=== Walk-Forward 검증 ({n_splits}폴드, decay={time_weight_decay}) ===")
@@ -177,7 +174,8 @@ def walk_forward_auc(
     df, btc_df, eth_df = _split_combined(raw)
 
     dataset = generate_dataset_vectorized(
-        df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay
+        df, btc_df=btc_df, eth_df=eth_df, time_weight_decay=time_weight_decay,
+        atr_sl_mult=atr_sl_mult, atr_tp_mult=atr_tp_mult, negative_ratio=5,
     )
     missing = [c for c in FEATURE_COLS if c not in dataset.columns]
     for col in missing:
@@ -186,6 +184,7 @@ def walk_forward_auc(
     X_all = dataset[FEATURE_COLS].values.astype(np.float32)
     y_all = dataset["label"].values.astype(np.float32)
     w_all = dataset["sample_weight"].values.astype(np.float32)
+    source_all = dataset["source"].values if "source" in dataset.columns else np.full(len(dataset), "signal")
     n = len(dataset)
 
     step = max(1, int(n * (1 - train_ratio) / n_splits))
@@ -204,28 +203,15 @@ def walk_forward_auc(
         X_val_raw = X_all[tr_end:val_end]
         y_val = y_all[tr_end:val_end]
 
-        pos_idx = np.where(y_tr == 1)[0]
-        neg_idx = np.where(y_tr == 0)[0]
-        if len(neg_idx) > len(pos_idx):
-            np.random.seed(42)
-            neg_idx = np.random.choice(neg_idx, size=len(pos_idx), replace=False)
-        bal_idx = np.sort(np.concatenate([pos_idx, neg_idx]))
+        source_tr = source_all[:tr_end]
+        bal_idx = stratified_undersample(y_tr, source_tr, seed=42)
 
         X_tr_bal = X_tr_raw[bal_idx]
         y_tr_bal = y_tr[bal_idx]
         w_tr_bal = w_tr[bal_idx]
 
-        # 폴드별 정규화 (학습 데이터 기준으로 계산, 검증에도 동일 적용)
-        mean = X_tr_bal.mean(axis=0)
-        std = X_tr_bal.std(axis=0) + 1e-8
-        X_tr_norm = (X_tr_bal - mean) / std
-        X_val_norm = (X_val_raw - mean) / std
-
-        # DataFrame으로 래핑해서 MLXFilter.fit()에 전달
-        # fit() 내부 정규화가 덮어쓰지 않도록 이미 정규화된 데이터를 넘기고
-        # _mean=0, _std=1로 고정해 이중 정규화를 방지
-        X_tr_df = pd.DataFrame(X_tr_norm, columns=FEATURE_COLS)
-        X_val_df = pd.DataFrame(X_val_norm, columns=FEATURE_COLS)
+        X_tr_df = pd.DataFrame(X_tr_bal, columns=FEATURE_COLS)
+        X_val_df = pd.DataFrame(X_val_raw, columns=FEATURE_COLS)
 
         model = MLXFilter(
             input_dim=len(FEATURE_COLS),
@@ -235,9 +221,7 @@ def walk_forward_auc(
             batch_size=256,
         )
         model.fit(X_tr_df, pd.Series(y_tr_bal), sample_weight=w_tr_bal)
-        # fit()이 내부에서 다시 정규화하므로 저장된 mean/std를 항등 변환으로 교체
-        model._mean = np.zeros(len(FEATURE_COLS), dtype=np.float32)
-        model._std = np.ones(len(FEATURE_COLS), dtype=np.float32)
+        # fit() handles normalization internally, predict_proba() applies same mean/std
 
         proba = model.predict_proba(X_val_df)
         auc = roc_auc_score(y_val, proba) if len(np.unique(y_val)) > 1 else 0.5
@@ -260,12 +244,16 @@ def main():
     )
     parser.add_argument("--wf", action="store_true", help="Walk-Forward 검증 실행")
     parser.add_argument("--wf-splits", type=int, default=5, help="Walk-Forward 폴드 수")
+    parser.add_argument("--sl-mult", type=float, default=2.0, help="SL ATR 배수 (기본 2.0)")
+    parser.add_argument("--tp-mult", type=float, default=2.0, help="TP ATR 배수 (기본 2.0)")
     args = parser.parse_args()
 
     if args.wf:
-        walk_forward_auc(args.data, time_weight_decay=args.decay, n_splits=args.wf_splits)
+        walk_forward_auc(args.data, time_weight_decay=args.decay, n_splits=args.wf_splits,
+                         atr_sl_mult=args.sl_mult, atr_tp_mult=args.tp_mult)
     else:
-        train_mlx(args.data, time_weight_decay=args.decay)
+        train_mlx(args.data, time_weight_decay=args.decay,
+                  atr_sl_mult=args.sl_mult, atr_tp_mult=args.tp_mult)
 
 
 if __name__ == "__main__":
