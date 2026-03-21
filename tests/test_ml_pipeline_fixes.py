@@ -100,3 +100,16 @@ def test_mlx_no_double_normalization():
 
     assert np.allclose(model._mean, 0.0), "normalize=False시 mean은 0이어야 한다"
     assert np.allclose(model._std, 1.0), "normalize=False시 std는 1이어야 한다"
+
+
+def test_ml_filter_from_model():
+    """MLFilter.from_model()로 LightGBM 모델을 주입할 수 있어야 한다."""
+    from src.ml_filter import MLFilter
+    from unittest.mock import MagicMock
+
+    mock_model = MagicMock()
+    mock_model.predict_proba.return_value = [[0.3, 0.7]]
+
+    mf = MLFilter.from_model(mock_model, threshold=0.55)
+    assert mf.is_model_loaded()
+    assert mf.active_backend == "LightGBM"

@@ -30,7 +30,7 @@ def validate(trades: list[dict], summary: dict, cfg) -> dict:
     results: list[CheckResult] = []
 
     # 검증 1: 논리적 불변 조건
-    results.extend(_check_invariants(trades))
+    results.extend(_check_invariants(trades, cfg))
 
     # 검증 2: 통계적 이상 감지
     results.extend(_check_statistics(trades, summary))
@@ -47,7 +47,7 @@ def validate(trades: list[dict], summary: dict, cfg) -> dict:
     }
 
 
-def _check_invariants(trades: list[dict]) -> list[CheckResult]:
+def _check_invariants(trades: list[dict], cfg=None) -> list[CheckResult]:
     """논리적 불변 조건. 하나라도 위반 시 FAIL."""
     results = []
 
@@ -120,7 +120,7 @@ def _check_invariants(trades: list[dict]) -> list[CheckResult]:
     ))
 
     # 5. 잔고가 음수가 된 적 없음
-    balance = 1000.0  # cfg.initial_balance를 몰라도 trades에서 추적 가능
+    balance = cfg.initial_balance if cfg is not None else 1000.0
     min_balance = balance
     for t in trades:
         balance += t["net_pnl"]

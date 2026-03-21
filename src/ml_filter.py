@@ -155,6 +155,21 @@ class MLFilter:
             logger.warning(f"ML 필터 예측 오류 (진입 차단): {e}")
             return False
 
+    @classmethod
+    def from_model(cls, model, threshold: float = 0.55) -> "MLFilter":
+        """외부에서 학습된 LightGBM 모델을 주입하여 MLFilter를 생성한다.
+        backtester walk-forward에서 사용."""
+        instance = cls.__new__(cls)
+        instance._disabled = False
+        instance._onnx_session = None
+        instance._lgbm_model = model
+        instance._threshold = threshold
+        instance._onnx_path = Path("/dev/null")
+        instance._lgbm_path = Path("/dev/null")
+        instance._loaded_onnx_mtime = 0.0
+        instance._loaded_lgbm_mtime = 0.0
+        return instance
+
     def reload_model(self):
         """외부에서 강제 리로드할 때 사용 (하위 호환)."""
         prev_backend = self.active_backend

@@ -317,16 +317,9 @@ class Backtester:
             self.ml_filters = {}
             for sym in self.cfg.symbols:
                 if sym in ml_models and ml_models[sym] is not None:
-                    mf = MLFilter.__new__(MLFilter)
-                    mf._disabled = False
-                    mf._onnx_session = None
-                    mf._lgbm_model = ml_models[sym]
-                    mf._threshold = self.cfg.ml_threshold
-                    mf._onnx_path = Path("/dev/null")
-                    mf._lgbm_path = Path("/dev/null")
-                    mf._loaded_onnx_mtime = 0.0
-                    mf._loaded_lgbm_mtime = 0.0
-                    self.ml_filters[sym] = mf
+                    self.ml_filters[sym] = MLFilter.from_model(
+                        ml_models[sym], threshold=self.cfg.ml_threshold
+                    )
                 else:
                     self.ml_filters[sym] = None
 
