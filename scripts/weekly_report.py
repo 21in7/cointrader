@@ -30,10 +30,10 @@ from src.notifier import DiscordNotifier
 
 
 # ── 프로덕션 파라미터 ──────────────────────────────────────────────
-SYMBOLS = ["XRPUSDT", "TRXUSDT", "DOGEUSDT"]
+SYMBOLS = ["XRPUSDT"]
 PROD_PARAMS = {
-    "atr_sl_mult": 2.0,
-    "atr_tp_mult": 2.0,
+    "atr_sl_mult": 1.5,
+    "atr_tp_mult": 4.0,
     "signal_threshold": 3,
     "adx_threshold": 25,
     "volume_multiplier": 2.5,
