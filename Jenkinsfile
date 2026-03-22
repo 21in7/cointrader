@@ -50,7 +50,7 @@ pipeline {
                         env.DASH_API_CHANGED = 'true'
                         env.DASH_UI_CHANGED = 'true'
                     } else {
-                        env.BOT_CHANGED = (changes =~ /(?m)^(src\/|main\.py|requirements\.txt|Dockerfile)/).find() ? 'true' : 'false'
+                        env.BOT_CHANGED = (changes =~ /(?m)^(src\/|scripts\/|main\.py|requirements\.txt|Dockerfile)/).find() ? 'true' : 'false'
                         env.DASH_API_CHANGED = (changes =~ /(?m)^dashboard\/api\//).find() ? 'true' : 'false'
                         env.DASH_UI_CHANGED = (changes =~ /(?m)^dashboard\/ui\//).find() ? 'true' : 'false'
                     }
@@ -123,7 +123,10 @@ pipeline {
 
                     // 변경된 서비스만 pull & recreate (나머지는 중단 없음)
                     def services = []
-                    if (env.BOT_CHANGED == 'true') services.add('cointrader')
+                    if (env.BOT_CHANGED == 'true') {
+                        services.add('cointrader')
+                        services.add('ls-ratio-collector')
+                    }
                     if (env.DASH_API_CHANGED == 'true') services.add('dashboard-api')
                     if (env.DASH_UI_CHANGED == 'true') services.add('dashboard-ui')
 
