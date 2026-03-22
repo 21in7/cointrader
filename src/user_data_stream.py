@@ -12,7 +12,7 @@ class UserDataStream:
     """
     Binance Futures User Data Stream을 구독하여 주문 체결 이벤트를 처리한다.
 
-    - python-binance BinanceSocketManager의 내장 keepalive 활용
+    - 매 재연결마다 AsyncClient + BinanceSocketManager를 새로 생성 (listenKey 무효화 대응)
     - 네트워크 단절 시 무한 재연결 루프
     - ORDER_TRADE_UPDATE 이벤트에서 지정 심볼의 청산 주문만 필터링하여 콜백 호출
     - 부분 체결(PARTIALLY_FILLED) 시 rp/commission을 누적하여 최종 FILLED에서 합산 콜백
@@ -30,20 +30,23 @@ class UserDataStream:
 
     async def start(self, api_key: str, api_secret: str) -> None:
         """User Data Stream 메인 루프 — 봇 종료 시까지 실행."""
-        client = await AsyncClient.create(
-            api_key=api_key,
-            api_secret=api_secret,
-        )
-        bm = BinanceSocketManager(client)
-        try:
-            await self._run_loop(bm)
-        finally:
-            await client.close_connection()
+        await self._run_loop(api_key, api_secret)
 
-    async def _run_loop(self, bm: BinanceSocketManager) -> None:
-        """연결 → 재연결 무한 루프. BinanceSocketManager가 listenKey keepalive를 내부 처리한다."""
+    async def _run_loop(self, api_key: str, api_secret: str) -> None:
+        """연결 → 재연결 무한 루프.
+
+        매 재연결마다 AsyncClient + BinanceSocketManager를 새로 생성한다.
+        keepalive ping timeout 후 기존 BinanceSocketManager의 listenKey가
+        무효화되면 재사용 시 이벤트를 수신하지 못하는 "조용한 실패"가 발생하므로,
+        반드시 새 인스턴스를 만들어야 한다.
+        """
         while True:
+            client = await AsyncClient.create(
+                api_key=api_key,
+                api_secret=api_secret,
+            )
             try:
+                bm = BinanceSocketManager(client)
                 async with bm.futures_user_socket() as stream:
                     logger.info(f"User Data Stream 연결 완료 (심볼 필터: {self._symbol})")
                     while True:
@@ -60,6 +63,10 @@ class UserDataStream:
 
             except asyncio.CancelledError:
                 logger.info("User Data Stream 정상 종료")
+                try:
+                    await client.close_connection()
+                except Exception:
+                    pass
                 raise
 
             except Exception as e:
@@ -67,7 +74,13 @@ class UserDataStream:
                     f"User Data Stream 끊김: {e} — "
                     f"{_RECONNECT_DELAY}초 후 재연결"
                 )
-                await asyncio.sleep(_RECONNECT_DELAY)
+            finally:
+                try:
+                    await client.close_connection()
+                except Exception:
+                    pass
+
+            await asyncio.sleep(_RECONNECT_DELAY)
 
     async def _handle_message(self, msg: dict) -> None:
         """ORDER_TRADE_UPDATE 이벤트에서 청산 주문을 필터링하여 콜백을 호출한다."""
