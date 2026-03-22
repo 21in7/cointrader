@@ -437,6 +437,7 @@ class TradingBot:
                 return
 
             side = "BUY" if signal == "LONG" else "SELL"
+            await self.exchange.set_margin_type("ISOLATED")
             await self.exchange.set_leverage(self.config.leverage)
             await self.exchange.place_order(side=side, quantity=quantity)
 

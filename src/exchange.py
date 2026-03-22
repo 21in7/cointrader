@@ -107,6 +107,21 @@ class BinanceFuturesClient:
             ),
         )
 
+    async def set_margin_type(self, margin_type: str = "ISOLATED") -> None:
+        """마진 타입을 변경한다. 이미 동일 타입이면 무시."""
+        try:
+            await self._run_api(
+                lambda: self.client.futures_change_margin_type(
+                    symbol=self.symbol, marginType=margin_type
+                ),
+            )
+            logger.info(f"[{self.symbol}] 마진 타입 변경: {margin_type}")
+        except BinanceAPIException as e:
+            if e.code == -4046:  # "No need to change margin type."
+                logger.debug(f"[{self.symbol}] 마진 타입 이미 {margin_type}")
+            else:
+                raise
+
     async def get_balance(self) -> float:
         balances = await self._run_api(self.client.futures_account_balance)
         for b in balances:
