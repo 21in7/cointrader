@@ -78,6 +78,10 @@ class TradingBot:
         self._entry_quantity: float | None = None
         self._is_reentering: bool = False  # _close_and_reenter 중 콜백 상태 초기화 방지
         self._entry_time_ms: int | None = None  # 포지션 진입 시각 (ms, SYNC PnL 범위 제한용)
+        self._sl_order_id: int | None = None  # SL 주문 ID (고아 주문 취소용)
+        self._tp_order_id: int | None = None  # TP 주문 ID (고아 주문 취소용)
+        self._sl_price: float | None = None   # SL 가격 (가격 기반 close_reason 판별용)
+        self._tp_price: float | None = None   # TP 가격 (가격 기반 close_reason 판별용)
         self._close_event = asyncio.Event()  # 콜백 청산 완료 대기용
         self._close_lock = asyncio.Lock()  # 청산 처리 원자성 보장 (C3 fix)
         self._prev_oi: float | None = None  # OI 변화율 계산용 이전 값
@@ -236,6 +240,13 @@ class TradingBot:
             open_orders = await self.exchange.get_open_orders()
             has_sl = any(o.get("type") == "STOP_MARKET" for o in open_orders)
             has_tp = any(o.get("type") == "TAKE_PROFIT_MARKET" for o in open_orders)
+            # 오픈 주문에서 SL/TP 가격 복원 (가격 기반 close_reason 판별용)
+            for o in open_orders:
+                otype = o.get("type", "")
+                if otype == "STOP_MARKET":
+                    self._sl_price = float(o.get("stopPrice", 0))
+                elif otype == "TAKE_PROFIT_MARKET":
+                    self._tp_price = float(o.get("stopPrice", 0))
             if has_sl and has_tp:
                 return
             missing = []
@@ -398,6 +409,8 @@ class TradingBot:
                 self.current_trade_side = None
                 self._entry_price = None
                 self._entry_quantity = None
+                self._sl_price = None
+                self._tp_price = None
             if not await self.risk.can_open_new_position(self.symbol, raw_signal):
                 logger.info(f"[{self.symbol}] 포지션 오픈 불가")
                 return
@@ -485,6 +498,8 @@ class TradingBot:
             self._entry_price = price
             self._entry_quantity = quantity
             self._entry_time_ms = int(time.time() * 1000)
+            self._sl_price = stop_loss
+            self._tp_price = take_profit
         self.notifier.notify_open(
             symbol=self.symbol,
             side=signal,
@@ -527,22 +542,26 @@ class TradingBot:
         for attempt in range(1, self._SL_TP_MAX_RETRIES + 1):
             try:
                 if not sl_placed:
-                    await self.exchange.place_order(
+                    sl_result = await self.exchange.place_order(
                         side=sl_side,
                         quantity=quantity,
                         order_type="STOP_MARKET",
                         stop_price=self.exchange._round_price(stop_loss),
                         reduce_only=True,
                     )
+                    self._sl_order_id = sl_result.get("orderId") or sl_result.get("algoId")
+                    logger.info(f"[{self.symbol}] SL 주문 배치: id={self._sl_order_id}")
                     sl_placed = True
                 if not tp_placed:
-                    await self.exchange.place_order(
+                    tp_result = await self.exchange.place_order(
                         side=sl_side,
                         quantity=quantity,
                         order_type="TAKE_PROFIT_MARKET",
                         stop_price=self.exchange._round_price(take_profit),
                         reduce_only=True,
                     )
+                    self._tp_order_id = tp_result.get("orderId") or tp_result.get("algoId")
+                    logger.info(f"[{self.symbol}] TP 주문 배치: id={self._tp_order_id}")
                     tp_placed = True
                 return  # 둘 다 성공
             except Exception as e:
@@ -567,6 +586,8 @@ class TradingBot:
             self.current_trade_side = None
             self._entry_price = None
             self._entry_quantity = None
+            self._sl_price = None
+            self._tp_price = None
             self.notifier.notify_info(
                 f"🚨 [{self.symbol}] SL/TP 배치 실패 → 긴급 청산 완료"
             )
@@ -578,6 +599,28 @@ class TradingBot:
             self.notifier.notify_info(
                 f"🔴 [{self.symbol}] 긴급 청산 실패! 수동 청산 필요: {e}"
             )
+
+    async def _cancel_remaining_orders(self, reason: str = "") -> None:
+        """잔여 SL/TP 고아 주문을 저장된 주문 ID로 직접 취소한다."""
+        ctx = f" ({reason})" if reason else ""
+        cancelled = 0
+        for label, oid in [("SL", self._sl_order_id), ("TP", self._tp_order_id)]:
+            if oid is None:
+                continue
+            try:
+                result = await self.exchange.cancel_order(oid)
+                logger.info(
+                    f"[{self.symbol}] {label} 주문 취소 완료{ctx}: "
+                    f"id={oid} → status={result.get('status', 'N/A')}"
+                )
+                cancelled += 1
+            except Exception as e:
+                # 이미 체결/취소된 주문이면 무시
+                logger.debug(f"[{self.symbol}] {label} 주문 취소 스킵{ctx}: id={oid}: {e}")
+        self._sl_order_id = None
+        self._tp_order_id = None
+        if cancelled == 0:
+            logger.info(f"[{self.symbol}] 취소할 잔여 주문 없음{ctx}")
 
     def _calc_estimated_pnl(self, exit_price: float) -> float:
         """진입가·수량 기반 예상 PnL 계산 (수수료 미반영)."""
@@ -600,6 +643,17 @@ class TradingBot:
                 logger.debug(f"[{self.symbol}] 이미 Flat 상태 — 콜백 건너뜀")
                 self._close_event.set()
                 return
+
+            # 실전 API에서 algo order는 ot=MARKET로 오므로 MANUAL로 판별됨
+            # → SL/TP 가격과 exit_price 비교로 재판별
+            if close_reason == "MANUAL" and self._sl_price and self._tp_price:
+                sl_dist = abs(exit_price - self._sl_price)
+                tp_dist = abs(exit_price - self._tp_price)
+                close_reason = "SL" if sl_dist < tp_dist else "TP"
+                logger.info(
+                    f"[{self.symbol}] close_reason 재판별: MANUAL → {close_reason} "
+                    f"(exit={exit_price:.4f}, SL={self._sl_price:.4f}, TP={self._tp_price:.4f})"
+                )
 
             estimated_pnl = self._calc_estimated_pnl(exit_price)
             diff = net_pnl - estimated_pnl
@@ -632,11 +686,16 @@ class TradingBot:
             if self._is_reentering:
                 return
 
+            # 잔여 SL/TP 고아 주문 취소
+            await self._cancel_remaining_orders("UDS 청산 콜백")
+
             # Flat 상태로 초기화
             self.current_trade_side = None
             self._entry_price = None
             self._entry_quantity = None
             self._entry_time_ms = None
+            self._sl_price = None
+            self._tp_price = None
 
     _MONITOR_INTERVAL = 300  # 5분
 
@@ -698,10 +757,14 @@ class TradingBot:
                             )
                             self._append_trade(net_pnl, "SYNC")
                             self._check_kill_switch()
+                            # 잔여 SL/TP 주문 취소
+                            await self._cancel_remaining_orders("SYNC 폴백")
                             self.current_trade_side = None
                             self._entry_price = None
                             self._entry_quantity = None
                             self._entry_time_ms = None
+                            self._sl_price = None
+                            self._tp_price = None
                             self._close_event.set()
                             continue
                 except Exception as e:
@@ -760,6 +823,11 @@ class TradingBot:
             self._entry_price = None
             self._entry_quantity = None
             self._entry_time_ms = None
+            self._sl_price = None
+            self._tp_price = None
+
+            # 잔여 SL/TP 주문 취소 확인 (_close_position에서 cancel_all 호출하지만 검증)
+            await self._cancel_remaining_orders("재진입 전 검증")
 
             if self._killed:
                 logger.info(f"[{self.symbol}] 킬스위치 활성 — 재진입 건너뜀 (청산만 수행)")
@@ -798,6 +866,14 @@ class TradingBot:
         )
         await self._recover_position()
         await self._init_oi_history()
+
+        # 봇 시작 시 포지션 없으면 고아 주문 정리 (저장된 ID 없으므로 cancel_all 사용)
+        if self.current_trade_side is None:
+            try:
+                result = await self.exchange.cancel_all_orders()
+                logger.info(f"[{self.symbol}] 봇 시작 — cancel_all_orders 응답: {result}")
+            except Exception as e:
+                logger.warning(f"[{self.symbol}] 봇 시작 — 주문 취소 실패: {e}")
 
         user_stream = UserDataStream(
             symbol=self.symbol,

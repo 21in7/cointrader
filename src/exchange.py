@@ -171,18 +171,54 @@ class BinanceFuturesClient:
         return None
 
     async def get_open_orders(self) -> list[dict]:
-        """현재 심볼의 오픈 주문 목록을 조회한다."""
-        return await self._run_api(
+        """현재 심볼의 오픈 주문 + algo 주문을 병합 반환한다."""
+        orders = await self._run_api(
             lambda: self.client.futures_get_open_orders(symbol=self.symbol),
         )
+        try:
+            algo_orders = await self._run_api(
+                lambda: self.client.futures_get_open_algo_orders(symbol=self.symbol)
+            )
+            for ao in algo_orders.get("orders", []):
+                orders.append({
+                    "orderId": ao.get("algoId"),
+                    "type": ao.get("orderType"),
+                    "stopPrice": ao.get("triggerPrice"),
+                    "side": ao.get("side"),
+                    "status": ao.get("algoStatus"),
+                    "_is_algo": True,
+                })
+        except Exception:
+            pass  # algo 주문 없으면 실패 가능
+        return orders
 
     async def cancel_all_orders(self):
-        """오픈 주문을 모두 취소한다."""
+        """일반 주문 + algo 주문을 모두 취소한다."""
         await self._run_api(
             lambda: self.client.futures_cancel_all_open_orders(
                 symbol=self.symbol
             ),
         )
+        try:
+            await self._run_api(
+                lambda: self.client.futures_cancel_all_algo_open_orders(symbol=self.symbol)
+            )
+        except Exception:
+            pass  # algo 주문 없으면 실패 가능
+
+    async def cancel_order(self, order_id: int):
+        """개별 주문을 취소한다. 일반 주문 실패 시 algo 주문으로 재시도."""
+        try:
+            return await self._run_api(
+                lambda: self.client.futures_cancel_order(
+                    symbol=self.symbol, orderId=order_id
+                ),
+            )
+        except Exception:
+            # Algo order (데모 API의 조건부 주문) 취소 시도
+            return await self._run_api(
+                lambda: self.client.futures_cancel_algo_order(algoId=order_id),
+            )
 
     async def get_recent_income(self, limit: int = 5, start_time: int | None = None) -> tuple[list[dict], list[dict]]:
         """최근 REALIZED_PNL + COMMISSION 내역을 조회한다.

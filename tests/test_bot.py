@@ -19,6 +19,7 @@ def config():
         "NOTION_TOKEN": "secret_test",
         "NOTION_DATABASE_ID": "db_test",
         "DISCORD_WEBHOOK_URL": "",
+        "BINANCE_TESTNET": "false",
     })
     return Config()
 
@@ -34,6 +35,7 @@ def sample_df():
         "low":    close * 0.995,
         "close":  close,
         "volume": np.random.randint(100000, 1000000, n).astype(float),
+        "atr":    np.full(n, 0.005),
     })
 
 

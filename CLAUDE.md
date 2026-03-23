@@ -149,3 +149,5 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-21 | `purged-gap-and-ablation` (plan) | Completed |
 | 2026-03-21 | `ml-validation-result` | ML OFF > ML ON 확정, SOL/DOGE/TRX 제외, XRP 단독 운영 |
 | 2026-03-21 | `ml-validation-pipeline` (plan) | Completed |
+| 2026-03-22 | `backtest-market-context` (design) | 설계 완료, 구현 대기 |
+| 2026-03-22 | `testnet-uds-verification` (design) | 설계 완료, 구현 대기 |

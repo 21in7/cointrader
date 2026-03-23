@@ -116,13 +116,11 @@ UDS의 close_reason 판별 로직은 유지하되, 콜백 시그니처에 `exit_
 
 현재 UDS에서 `ot`로 판별 → 실전에서 `ot=MARKET` → `close_reason="MANUAL"` → bot.py에서 가격 비교로 SL/TP 재판별. 이 흐름이 테스트넷에서도 안전 (테스트넷은 `ot=STOP_MARKET`이 오므로 재판별 자체가 불필요).
 
-### 4. 포지션 모니터 SYNC 경로
+### 4. 포지션 모니터 SYNC 경로 — 이미 구현됨
 
-`_position_monitor()`의 SYNC 폴백(line 669-722)에서 잔여주문 취소 누락 → 추가.
-```python
-# 상태 동기화 후 잔여 주문 취소
-await self._cancel_remaining_orders("SYNC")
-```
+`_position_monitor()`의 SYNC 폴백에서 잔여주문 취소는 **이미 구현되어 있음**. 추가 수정 불필요.
+
+> **참고**: `_place_sl_tp_with_retry()`의 algoId 저장도 이미 구현됨 (bot.py line 539, 550).
 
 ### 5. 테스트 계획
 

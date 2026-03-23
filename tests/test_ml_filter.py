@@ -29,6 +29,7 @@ def test_no_model_should_enter_returns_true(tmp_path):
     assert f.should_enter(features) is True
 
 
+@patch.dict("os.environ", {"NO_ML_FILTER": "false"})
 def test_should_enter_above_threshold():
     """확률 >= 0.60 이면 True"""
     f = MLFilter(threshold=0.60)
@@ -40,6 +41,7 @@ def test_should_enter_above_threshold():
     assert f.should_enter(features) is True
 
 
+@patch.dict("os.environ", {"NO_ML_FILTER": "false"})
 def test_should_enter_below_threshold():
     """확률 < 0.60 이면 False"""
     f = MLFilter(threshold=0.60)
