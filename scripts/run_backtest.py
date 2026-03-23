@@ -20,6 +20,8 @@ import json
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
+import pandas_ta as ta
 
 from loguru import logger
 
@@ -107,6 +109,174 @@ def print_fold_table(folds: list[dict]):
     print("=" * 90)
 
 
+def _classify_regime(btc_return: float, btc_avg_adx: float) -> str:
+    """BTC ADX와 수익률 기반 시장 레짐 분류."""
+    if btc_avg_adx >= 25:
+        return "상승 추세" if btc_return > 0 else "하락 추세"
+    return "횡보"
+
+
+def _calc_fold_market_context(
+    raw_df: pd.DataFrame, test_start: str, test_end: str
+) -> dict:
+    """폴드 기간의 BTC/ETH 수익률과 시장 레짐 계산."""
+    ts_start = pd.Timestamp(test_start)
+    ts_end = pd.Timestamp(test_end)
+
+    idx = raw_df.index
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    if ts_start.tz is not None:
+        ts_start = ts_start.tz_localize(None)
+    if ts_end.tz is not None:
+        ts_end = ts_end.tz_localize(None)
+
+    fold_df = raw_df[(idx >= ts_start) & (idx < ts_end)]
+    if len(fold_df) < 20:
+        return None
+
+    # BTC return
+    btc_start = fold_df["close_btc"].iloc[0]
+    btc_end = fold_df["close_btc"].iloc[-1]
+    btc_return = (btc_end - btc_start) / btc_start * 100
+
+    # ETH return
+    eth_start = fold_df["close_eth"].iloc[0]
+    eth_end = fold_df["close_eth"].iloc[-1]
+    eth_return = (eth_end - eth_start) / eth_start * 100
+
+    # BTC ADX (period average)
+    adx_df = ta.adx(fold_df["high_btc"], fold_df["low_btc"], fold_df["close_btc"], length=14)
+    btc_avg_adx = adx_df["ADX_14"].mean()
+    if np.isnan(btc_avg_adx):
+        btc_avg_adx = 0.0
+
+    regime = _classify_regime(btc_return, btc_avg_adx)
+
+    return {
+        "btc_return_pct": round(btc_return, 1),
+        "eth_return_pct": round(eth_return, 1),
+        "btc_avg_adx": round(btc_avg_adx, 1),
+        "market_regime": regime,
+    }
+
+
+def _load_ls_ratio(symbol: str, test_start: str, test_end: str) -> dict | None:
+    """폴드 기간의 L/S ratio 평균값 로드. 데이터 없으면 None."""
+    path = Path(f"data/{symbol.lower()}/ls_ratio_15m.parquet")
+    if not path.exists():
+        return None
+
+    df = pd.read_parquet(path)
+    ts_start = pd.Timestamp(test_start)
+    ts_end = pd.Timestamp(test_end)
+
+    # tz 맞추기
+    if df["timestamp"].dt.tz is not None:
+        if ts_start.tz is None:
+            ts_start = ts_start.tz_localize("UTC")
+        if ts_end.tz is None:
+            ts_end = ts_end.tz_localize("UTC")
+
+    mask = (df["timestamp"] >= ts_start) & (df["timestamp"] < ts_end)
+    period_df = df[mask]
+
+    if period_df.empty:
+        return None
+
+    return {
+        "top_acct_avg": round(period_df["top_acct_ls_ratio"].mean(), 2),
+        "global_avg": round(period_df["global_ls_ratio"].mean(), 2),
+    }
+
+
+def calc_market_context(folds: list[dict], symbols: list[str]) -> list[dict]:
+    """각 폴드에 대한 시장 컨텍스트 계산."""
+    # XRP parquet에서 BTC/ETH 데이터 로드 (임베딩됨)
+    primary_sym = symbols[0].lower()
+    raw_path = Path(f"data/{primary_sym}/combined_15m.parquet")
+    if not raw_path.exists():
+        logger.warning(f"데이터 파일 없음: {raw_path}")
+        return []
+
+    raw_df = pd.read_parquet(raw_path)
+    if "close_btc" not in raw_df.columns or "close_eth" not in raw_df.columns:
+        logger.warning("BTC/ETH 상관 데이터 없음")
+        return []
+
+    contexts = []
+    for fold in folds:
+        test_start = fold.get("test_start")
+        test_end = fold.get("test_end")
+        if not test_start or not test_end:
+            contexts.append({"fold": fold["fold"], "market_context": None})
+            continue
+
+        ctx = _calc_fold_market_context(raw_df, test_start, test_end)
+        if ctx is None:
+            contexts.append({"fold": fold["fold"], "market_context": None})
+            continue
+
+        # L/S ratio (XRP, BTC, ETH)
+        ls_data = {}
+        for ls_sym in ["xrpusdt", "btcusdt", "ethusdt"]:
+            ls = _load_ls_ratio(ls_sym, test_start, test_end)
+            if ls:
+                ls_data[ls_sym.replace("usdt", "")] = ls
+
+        ctx["ls_ratio"] = ls_data if ls_data else None
+        contexts.append({"fold": fold["fold"], "market_context": ctx})
+
+    return contexts
+
+
+def print_market_context(contexts: list[dict]):
+    """시장 컨텍스트 테이블 출력."""
+    if not contexts:
+        return
+
+    # Market Regime 테이블
+    print("\n📊 Market Context per Fold")
+    print(f"{'─' * 80}")
+    print(f"  {'Fold':>4}  {'BTC Return':>12}  {'ETH Return':>12}  {'Market Regime':<32}")
+    print(f"{'─' * 80}")
+
+    for c in contexts:
+        ctx = c.get("market_context")
+        if ctx is None:
+            print(f"  {c['fold']:>4}  {'N/A':>12}  {'N/A':>12}  {'N/A':<32}")
+        else:
+            regime_str = f"{ctx['market_regime']} (BTC ADX {ctx['btc_avg_adx']:.0f})"
+            print(f"  {c['fold']:>4}  {ctx['btc_return_pct']:>+11.1f}%  "
+                  f"{ctx['eth_return_pct']:>+11.1f}%  {regime_str:<32}")
+    print(f"{'─' * 80}")
+
+    # L/S Ratio 테이블 (데이터 있는 폴드가 하나라도 있으면)
+    has_ls = any(
+        c.get("market_context") and c["market_context"].get("ls_ratio")
+        for c in contexts
+    )
+
+    if has_ls:
+        print("\n📊 L/S Ratio Context per Fold (period avg)")
+        print(f"{'─' * 80}")
+        print(f"  {'Fold':>4}  {'XRP Top/Global':>18}  {'BTC Top/Global':>18}  {'ETH Top/Global':>18}")
+        print(f"{'─' * 80}")
+        for c in contexts:
+            ctx = c.get("market_context")
+            ls = ctx.get("ls_ratio") if ctx else None
+            parts = []
+            for sym in ["xrp", "btc", "eth"]:
+                if ls and sym in ls:
+                    parts.append(f"{ls[sym]['top_acct_avg']:.2f} / {ls[sym]['global_avg']:.2f}")
+                else:
+                    parts.append("N/A")
+            print(f"  {c['fold']:>4}  {parts[0]:>18}  {parts[1]:>18}  {parts[2]:>18}")
+        print(f"{'─' * 80}")
+    else:
+        print("  ℹ️ L/S ratio 데이터 없음 — collector 데이터 축적 후 표시됩니다")
+
+
 def save_result(result: dict, cfg):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     mode = result.get("mode", "standard")
@@ -183,6 +353,11 @@ def compare_ml(symbols: list[str], args):
         print_summary(result["summary"], cfg, mode="walk_forward")
         if result.get("folds"):
             print_fold_table(result["folds"])
+            # 시장 컨텍스트는 첫 번째 실행에서만 출력 (동일 데이터)
+            if label == "ML OFF":
+                contexts = calc_market_context(result["folds"], symbols)
+                if contexts:
+                    print_market_context(contexts)
 
     _print_comparison(results, symbols)
 
@@ -343,6 +518,12 @@ def main():
         print_summary(result["summary"], cfg, mode="walk_forward")
         if result.get("folds"):
             print_fold_table(result["folds"])
+            contexts = calc_market_context(result["folds"], symbols)
+            if contexts:
+                print_market_context(contexts)
+                # JSON에 market_context 추가
+                for fold, ctx in zip(result["folds"], contexts):
+                    fold["market_context"] = ctx.get("market_context")
         save_result(result, cfg)
     else:
         cfg = BacktestConfig(

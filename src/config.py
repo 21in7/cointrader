@@ -35,10 +35,18 @@ class Config:
     signal_threshold: int = 3
     adx_threshold: float = 25.0
     volume_multiplier: float = 2.5
+    kline_interval: str = "15m"
+    testnet: bool = False
 
     def __post_init__(self):
-        self.api_key = os.getenv("BINANCE_API_KEY", "")
-        self.api_secret = os.getenv("BINANCE_API_SECRET", "")
+        self.testnet = os.getenv("BINANCE_TESTNET", "").lower() in ("true", "1", "yes")
+
+        if self.testnet:
+            self.api_key = os.getenv("BINANCE_DEMO_API_KEY", "")
+            self.api_secret = os.getenv("BINANCE_DEMO_API_SECRET", "")
+        else:
+            self.api_key = os.getenv("BINANCE_API_KEY", "")
+            self.api_secret = os.getenv("BINANCE_API_SECRET", "")
         self.symbol = os.getenv("SYMBOL", "XRPUSDT")
         self.leverage = int(os.getenv("LEVERAGE", "10"))
         self.discord_webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
@@ -52,6 +60,7 @@ class Config:
         self.signal_threshold = int(os.getenv("SIGNAL_THRESHOLD", "3"))
         self.adx_threshold = float(os.getenv("ADX_THRESHOLD", "25"))
         self.volume_multiplier = float(os.getenv("VOL_MULTIPLIER", "2.5"))
+        self.kline_interval = os.getenv("KLINE_INTERVAL", "15m")
 
         # symbols: SYMBOLS 환경변수 우선, 없으면 SYMBOL에서 변환
         symbols_env = os.getenv("SYMBOLS", "")

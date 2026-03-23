@@ -20,6 +20,7 @@ class BinanceFuturesClient:
         self.client = Client(
             api_key=config.api_key,
             api_secret=config.api_secret,
+            demo=config.testnet,
         )
         self._qty_precision: int | None = None
         self._price_precision: int | None = None

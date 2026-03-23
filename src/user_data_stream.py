@@ -28,11 +28,11 @@ class UserDataStream:
         # 부분 체결 누적용: order_id → {rp, commission}
         self._partial_fills: dict[int, dict[str, float]] = {}
 
-    async def start(self, api_key: str, api_secret: str) -> None:
+    async def start(self, api_key: str, api_secret: str, testnet: bool = False) -> None:
         """User Data Stream 메인 루프 — 봇 종료 시까지 실행."""
-        await self._run_loop(api_key, api_secret)
+        await self._run_loop(api_key, api_secret, testnet)
 
-    async def _run_loop(self, api_key: str, api_secret: str) -> None:
+    async def _run_loop(self, api_key: str, api_secret: str, testnet: bool = False) -> None:
         """연결 → 재연결 무한 루프.
 
         매 재연결마다 AsyncClient + BinanceSocketManager를 새로 생성한다.
@@ -44,6 +44,7 @@ class UserDataStream:
             client = await AsyncClient.create(
                 api_key=api_key,
                 api_secret=api_secret,
+                demo=testnet,
             )
             try:
                 bm = BinanceSocketManager(client)
@@ -93,12 +94,19 @@ class UserDataStream:
         if order.get("s", "") != self._symbol:
             return
 
+        logger.info(
+            f"[{self._symbol}] UDS 원본: s={order.get('s')} o={order.get('o')} "
+            f"ot={order.get('ot')} x={order.get('x')} X={order.get('X')} "
+            f"R={order.get('R')} S={order.get('S')} ap={order.get('ap')} "
+            f"rp={order.get('rp')}"
+        )
+
         # x: Execution Type — TRADE만 처리
         if order.get("x") != "TRADE":
             return
 
         order_status = order.get("X", "")
-        order_type   = order.get("o", "")
+        order_type   = order.get("ot", order.get("o", ""))
         is_reduce    = order.get("R", False)
         order_id     = order.get("i", 0)
 
@@ -106,6 +114,12 @@ class UserDataStream:
         is_close = is_reduce or order_type in _CLOSE_ORDER_TYPES
         if not is_close:
             return
+
+        logger.info(
+            f"[{self._symbol}] 청산 주문 상세: "
+            f"type={order_type}, status={order_status}, "
+            f"reduce={is_reduce}, id={order_id}"
+        )
 
         fill_rp         = float(order.get("rp", "0"))
         fill_commission  = abs(float(order.get("n", "0")))

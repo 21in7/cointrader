@@ -6,12 +6,15 @@ from loguru import logger
 class DiscordNotifier:
     """Discord 웹훅으로 거래 알림을 전송하는 노티파이어."""
 
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: str, testnet: bool = False):
         self.webhook_url = webhook_url
         self._enabled = bool(webhook_url)
+        self._testnet = testnet
 
     def _send(self, content: str) -> None:
         """알림 전송. 이벤트 루프 내에서는 백그라운드 스레드로 실행하여 블로킹 방지."""
+        if self._testnet:
+            content = f"[TESTNET] {content}"
         if not self._enabled:
             logger.debug("Discord 웹훅 URL 미설정 - 알림 건너뜀")
             return

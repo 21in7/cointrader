@@ -77,10 +77,11 @@ class KlineStream:
             })
         logger.info(f"과거 캔들 {len(self.buffer)}개 로드 완료 — 즉시 신호 계산 가능")
 
-    async def start(self, api_key: str, api_secret: str):
+    async def start(self, api_key: str, api_secret: str, testnet: bool = False):
         client = await AsyncClient.create(
             api_key=api_key,
             api_secret=api_secret,
+            demo=testnet,
         )
         await self._preload_history(client)
         bm = BinanceSocketManager(client)
@@ -189,10 +190,11 @@ class MultiSymbolStream:
             self._preload_one(client, symbol, limit) for symbol in self.symbols
         ])
 
-    async def start(self, api_key: str, api_secret: str):
+    async def start(self, api_key: str, api_secret: str, testnet: bool = False):
         client = await AsyncClient.create(
             api_key=api_key,
             api_secret=api_secret,
+            demo=testnet,
         )
         await self._preload_history(client)
         bm = BinanceSocketManager(client)

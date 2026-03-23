@@ -701,6 +701,8 @@ class WalkForwardBacktester:
                 "fold": i + 1,
                 "train_period": f"{train_start.date()} ~ {train_end.date()}",
                 "test_period": f"{test_start.date()} ~ {test_end.date()}",
+                "test_start": test_start.isoformat(),
+                "test_end": test_end.isoformat(),
                 "summary": result["summary"],
             })
 

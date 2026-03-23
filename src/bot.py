@@ -58,7 +58,7 @@ class TradingBot:
         self.symbol = symbol or config.symbol
         self.strategy = config.get_symbol_params(self.symbol)
         self.exchange = BinanceFuturesClient(config, symbol=self.symbol)
-        self.notifier = DiscordNotifier(config.discord_webhook_url)
+        self.notifier = DiscordNotifier(config.discord_webhook_url, testnet=config.testnet)
         self.risk = risk or RiskManager(config)
         # 심볼별 모델 디렉토리. 없으면 기존 models/ 루트로 폴백
         symbol_model_dir = Path(f"models/{self.symbol.lower()}")
@@ -88,7 +88,7 @@ class TradingBot:
         self._trade_history: list[dict] = []  # 최근 거래 이력 (net_pnl 기록)
         self.stream = MultiSymbolStream(
             symbols=[self.symbol] + config.correlation_symbols,
-            interval="15m",
+            interval=config.kline_interval,
             on_candle=self._on_candle_closed,
         )
         # 부팅 시 거래 이력 복원 및 킬스위치 소급 검증
@@ -98,7 +98,11 @@ class TradingBot:
     # ── 킬스위치 ──────────────────────────────────────────────────────
 
     def _trade_history_path(self) -> Path:
-        return _TRADE_HISTORY_DIR / f"{self.symbol.lower()}.jsonl"
+        base = _TRADE_HISTORY_DIR
+        if self.config.testnet:
+            base = base / "testnet"
+        base.mkdir(parents=True, exist_ok=True)
+        return base / f"{self.symbol.lower()}.jsonl"
 
     def _restore_trade_history(self) -> None:
         """부팅 시 파일 마지막 N줄만 읽어 거래 이력을 복원한다.
@@ -327,6 +331,23 @@ class TradingBot:
         return change
 
     async def process_candle(self, df, btc_df=None, eth_df=None):
+        # Demo 모드: 시그널/필터 전부 우회, 포지션 없을 때만 1회 LONG 진입 (UDS 검증용)
+        if self.config.testnet:
+            ind = Indicators(df)
+            df_with_indicators = ind.calculate_all()
+            current_price = df_with_indicators["close"].iloc[-1]
+            # 로컬 상태 + 바이낸스 포지션 모두 체크
+            if self.current_trade_side is not None:
+                logger.info(f"[{self.symbol}] [DEMO] 포지션 보유 중 (로컬) — SL/TP 대기 | 현재가: {current_price:.4f}")
+                return
+            position = await self.exchange.get_position()
+            if position is not None:
+                logger.info(f"[{self.symbol}] [DEMO] 포지션 보유 중 (바이낸스) — SL/TP 대기 | 현재가: {current_price:.4f}")
+                return
+            logger.info(f"[{self.symbol}] [DEMO] 강제 LONG 진입 | 현재가: {current_price:.4f}")
+            await self._open_position("LONG", df_with_indicators)
+            return
+
         self.ml_filter.check_and_reload()
 
         # 가격 수익률 계산 (oi_price_spread용)
@@ -418,15 +439,26 @@ class TradingBot:
                 balance=per_symbol_balance, price=price, leverage=self.config.leverage, margin_ratio=margin_ratio
             )
             logger.info(f"[{self.symbol}] 포지션 크기: 잔고={per_symbol_balance:.2f}/{balance:.2f} USDT, 증거금비율={margin_ratio:.1%}, 수량={quantity}")
-            # df는 이미 calculate_all() 적용된 df_with_indicators이므로
-            # Indicators를 재생성하지 않고 ATR을 직접 사용
-            atr = df["atr"].iloc[-1]
-            if signal == "LONG":
-                stop_loss = price - atr * self.strategy.atr_sl_mult
-                take_profit = price + atr * self.strategy.atr_tp_mult
+            # Demo 모드: 고정 퍼센트 SL/TP (ATR이 너무 작아 즉시 트리거 방지)
+            if self.config.testnet:
+                sl_pct = 0.005  # 0.5%
+                tp_pct = 0.02
+                if signal == "LONG":
+                    stop_loss = price * (1 - sl_pct)
+                    take_profit = price * (1 + tp_pct)
+                else:
+                    stop_loss = price * (1 + sl_pct)
+                    take_profit = price * (1 - tp_pct)
             else:
-                stop_loss = price + atr * self.strategy.atr_sl_mult
-                take_profit = price - atr * self.strategy.atr_tp_mult
+                # df는 이미 calculate_all() 적용된 df_with_indicators이므로
+                # Indicators를 재생성하지 않고 ATR을 직접 사용
+                atr = df["atr"].iloc[-1]
+                if signal == "LONG":
+                    stop_loss = price - atr * self.strategy.atr_sl_mult
+                    take_profit = price + atr * self.strategy.atr_tp_mult
+                else:
+                    stop_loss = price + atr * self.strategy.atr_sl_mult
+                    take_profit = price - atr * self.strategy.atr_tp_mult
 
             notional = quantity * price
             if quantity <= 0 or notional < self.exchange.MIN_NOTIONAL:
@@ -755,6 +787,9 @@ class TradingBot:
             self._is_reentering = False
 
     async def run(self):
+        if self.config.testnet:
+            logger.warning("⚠️ TESTNET MODE ENABLED — 실제 자금이 아닌 테스트넷에서 실행 중")
+
         s = self.strategy
         logger.info(
             f"[{self.symbol}] 봇 시작, 레버리지 {self.config.leverage}x | "
@@ -773,10 +808,12 @@ class TradingBot:
             self.stream.start(
                 api_key=self.config.api_key,
                 api_secret=self.config.api_secret,
+                testnet=self.config.testnet,
             ),
             user_stream.start(
                 api_key=self.config.api_key,
                 api_secret=self.config.api_secret,
+                testnet=self.config.testnet,
             ),
             self._position_monitor(),
         )
