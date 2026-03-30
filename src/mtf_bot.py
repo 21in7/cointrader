@@ -15,6 +15,7 @@ Module 4: ExecutionManager (Dry-run 가상 주문 + SL/TP 관리)
 """
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from collections import deque
 from typing import Optional, Dict, List
@@ -23,6 +24,7 @@ import pandas as pd
 import pandas_ta as ta
 import ccxt.async_support as ccxt
 from loguru import logger
+from src.notifier import DiscordNotifier
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -540,6 +542,9 @@ class MTFPullbackBot:
         self.meta = MetaFilter(self.fetcher)
         self.trigger = TriggerStrategy()
         self.executor = ExecutionManager()
+        self.notifier = DiscordNotifier(
+            webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
+        )
         self._last_15m_check_ts: int = 0  # 중복 체크 방지
 
     async def run(self):
@@ -552,6 +557,11 @@ class MTFPullbackBot:
         meta_state = self.meta.get_market_state()
         atr = self.meta.get_current_atr()
         logger.info(f"[MTFBot] 초기 상태: Meta={meta_state}, ATR={atr}")
+        self.notifier.notify_info(
+            f"**[MTF Dry-run] 봇 시작**\n"
+            f"심볼: `{self.symbol}` | Meta: `{meta_state}` | ATR: `{atr:.6f}`" if atr else
+            f"**[MTF Dry-run] 봇 시작**\n심볼: `{self.symbol}` | Meta: `{meta_state}` | ATR: N/A"
+        )
 
         try:
             while True:
@@ -615,6 +625,17 @@ class MTFPullbackBot:
             result = self.executor.execute(signal, current_price, atr)
             if result:
                 logger.info(f"[MTFBot] 거래 기록: {result}")
+                side = result["action"]
+                sl_dist = abs(result["entry_price"] - result["sl_price"])
+                tp_dist = abs(result["tp_price"] - result["entry_price"])
+                self.notifier._send(
+                    f"📌 **[MTF Dry-run] 가상 {side} 진입**\n"
+                    f"진입가: `{result['entry_price']:.4f}` | ATR: `{result['atr']:.6f}`\n"
+                    f"SL: `{result['sl_price']:.4f}` ({sl_dist:.4f}) | "
+                    f"TP: `{result['tp_price']:.4f}` ({tp_dist:.4f})\n"
+                    f"R:R = `1:{result['risk_reward']}` | Meta: `{meta_state}`\n"
+                    f"사유: {info.get('reason', '')}"
+                )
         else:
             logger.debug(f"[MTFBot] HOLD | {info.get('reason', '')}")
 
@@ -642,21 +663,35 @@ class MTFPullbackBot:
             hit_tp = last["low"] <= tp
 
         if hit_sl and hit_tp:
-            # 보수적: SL 우선
             exit_price = sl
             pnl = (exit_price - entry) / entry if pos == "LONG" else (entry - exit_price) / entry
             logger.info(f"[MTFBot] SL+TP 동시 히트 → SL 우선 청산 | PnL: {pnl*10000:+.1f}bps")
             self.executor.close_position(f"SL 히트 ({exit_price:.4f})")
+            self.notifier._send(
+                f"❌ **[MTF Dry-run] {pos} SL 청산**\n"
+                f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
+                f"PnL: `{pnl*10000:+.1f}bps`"
+            )
         elif hit_sl:
             exit_price = sl
             pnl = (exit_price - entry) / entry if pos == "LONG" else (entry - exit_price) / entry
             logger.info(f"[MTFBot] SL 히트 | 청산가: {exit_price:.4f} | PnL: {pnl*10000:+.1f}bps")
             self.executor.close_position(f"SL 히트 ({exit_price:.4f})")
+            self.notifier._send(
+                f"❌ **[MTF Dry-run] {pos} SL 청산**\n"
+                f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
+                f"PnL: `{pnl*10000:+.1f}bps`"
+            )
         elif hit_tp:
             exit_price = tp
             pnl = (exit_price - entry) / entry if pos == "LONG" else (entry - exit_price) / entry
             logger.info(f"[MTFBot] TP 히트 | 청산가: {exit_price:.4f} | PnL: {pnl*10000:+.1f}bps")
             self.executor.close_position(f"TP 히트 ({exit_price:.4f})")
+            self.notifier._send(
+                f"✅ **[MTF Dry-run] {pos} TP 청산**\n"
+                f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
+                f"PnL: `{pnl*10000:+.1f}bps`"
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════

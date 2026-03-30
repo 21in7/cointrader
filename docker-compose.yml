@@ -56,6 +56,8 @@ services:
     image: git.gihyeon.com/gihyeon/cointrader:latest
     container_name: mtf-bot
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - TZ=Asia/Seoul
       - PYTHONUNBUFFERED=1

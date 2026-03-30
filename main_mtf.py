@@ -2,9 +2,12 @@
 
 import asyncio
 import signal as sig
+from dotenv import load_dotenv
 from loguru import logger
 from src.mtf_bot import MTFPullbackBot
 from src.logger_setup import setup_logger
+
+load_dotenv()
 
 
 async def main():
