@@ -79,12 +79,12 @@ class DataFetcher:
             "enableRateLimit": True,
             "options": {"defaultType": "future"},
         })
-        self.klines_15m: deque = deque(maxlen=200)
-        self.klines_1h: deque = deque(maxlen=200)
+        self.klines_15m: deque = deque(maxlen=250)
+        self.klines_1h: deque = deque(maxlen=250)
         self._last_15m_ts: int = 0  # 마지막으로 저장된 15m 캔들 timestamp
         self._last_1h_ts: int = 0
 
-    async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 200) -> List[List]:
+    async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 250) -> List[List]:
         """
         ccxt를 통해 OHLCV 데이터 fetch.
 
@@ -94,16 +94,16 @@ class DataFetcher:
         return await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
 
     async def initialize(self):
-        """봇 시작 시 초기 데이터 로드 (200개씩)."""
+        """봇 시작 시 초기 데이터 로드 (250개씩)."""
         # 15m 캔들
-        raw_15m = await self.fetch_ohlcv(self.symbol, "15m", limit=200)
+        raw_15m = await self.fetch_ohlcv(self.symbol, "15m", limit=250)
         for candle in raw_15m:
             self.klines_15m.append(candle)
         if raw_15m:
             self._last_15m_ts = raw_15m[-1][0]
 
         # 1h 캔들
-        raw_1h = await self.fetch_ohlcv(self.symbol, "1h", limit=200)
+        raw_1h = await self.fetch_ohlcv(self.symbol, "1h", limit=250)
         for candle in raw_1h:
             self.klines_1h.append(candle)
         if raw_1h:
