@@ -16,6 +16,7 @@ Module 4: ExecutionManager (Dry-run 가상 주문 + SL/TP 관리)
 
 import asyncio
 import os
+import time as _time
 from datetime import datetime, timezone
 from collections import deque
 from typing import Optional, Dict, List
@@ -534,7 +535,8 @@ class ExecutionManager:
 class MTFPullbackBot:
     """MTF Pullback Bot 메인 루프 — Dry-run OOS 검증용."""
 
-    POLL_INTERVAL = 30  # 초
+    LOOP_INTERVAL = 1   # 초 (TimeframeSync 4초 윈도우를 놓치지 않기 위해)
+    POLL_INTERVAL = 30  # 데이터 폴링 주기 (초)
 
     def __init__(self, symbol: str = "XRP/USDT:USDT"):
         self.symbol = symbol
@@ -546,6 +548,7 @@ class MTFPullbackBot:
             webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
         )
         self._last_15m_check_ts: int = 0  # 중복 체크 방지
+        self._last_poll_ts: float = 0  # 마지막 폴링 시각
 
     async def run(self):
         """메인 루프: 30초 폴링 → 15m 캔들 close 감지 → 신호 판정."""
@@ -565,16 +568,22 @@ class MTFPullbackBot:
 
         try:
             while True:
-                await asyncio.sleep(self.POLL_INTERVAL)
+                await asyncio.sleep(self.LOOP_INTERVAL)
 
                 try:
-                    await self._poll_and_update()
+                    # 데이터 폴링 (30초마다)
+                    now_mono = _time.monotonic()
+                    if now_mono - self._last_poll_ts >= self.POLL_INTERVAL:
+                        await self._poll_and_update()
+                        self._last_poll_ts = now_mono
+
                     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
                     # 15m 캔들 close 감지
                     if TimeframeSync.is_15m_candle_closed(now_ms):
                         if now_ms - self._last_15m_check_ts > 60_000:  # 1분 이내 중복 방지
                             self._last_15m_check_ts = now_ms
+                            await self._poll_and_update()  # 최신 데이터 보장
                             await self._on_15m_close()
 
                     # 포지션 보유 중이면 SL/TP 모니터링
@@ -613,15 +622,23 @@ class MTFPullbackBot:
         atr = self.meta.get_current_atr()
 
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        logger.info(f"[MTFBot] ── 15m 캔들 close ({now_str}) ──")
-        logger.info(f"[MTFBot] Meta: {meta_state} | ATR: {atr:.6f}" if atr else f"[MTFBot] Meta: {meta_state} | ATR: N/A")
+        last_close = float(df_15m.iloc[-1]["close"]) if df_15m is not None and len(df_15m) > 0 else 0
+        pos_info = self.executor.current_position or "없음"
+
+        # Heartbeat: 15분마다 무조건 출력
+        logger.info(
+            f"[Heartbeat] 15m 마감 ({now_str}) | Meta: {meta_state} | "
+            f"ATR: {atr:.6f} | Close: {last_close:.4f} | Pos: {pos_info}" if atr else
+            f"[Heartbeat] 15m 마감 ({now_str}) | Meta: {meta_state} | "
+            f"ATR: N/A | Close: {last_close:.4f} | Pos: {pos_info}"
+        )
 
         signal = self.trigger.generate_signal(df_15m, meta_state)
         info = self.trigger.get_trigger_info()
 
         if signal != "HOLD":
             logger.info(f"[MTFBot] 신호: {signal} | {info.get('reason', '')}")
-            current_price = float(df_15m.iloc[-1]["close"])
+            current_price = last_close
             result = self.executor.execute(signal, current_price, atr)
             if result:
                 logger.info(f"[MTFBot] 거래 기록: {result}")
@@ -637,7 +654,7 @@ class MTFPullbackBot:
                     f"사유: {info.get('reason', '')}"
                 )
         else:
-            logger.debug(f"[MTFBot] HOLD | {info.get('reason', '')}")
+            logger.info(f"[MTFBot] HOLD | {info.get('reason', '')}")
 
     def _check_sl_tp(self):
         """현재 가격으로 SL/TP 도달 여부 확인 (15m 캔들 high/low 기반)."""
