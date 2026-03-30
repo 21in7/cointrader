@@ -63,6 +63,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./logs:/app/logs
+      - ./data:/app/data
     entrypoint: ["python", "main_mtf.py"]
     logging:
       driver: "json-file"

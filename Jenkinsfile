@@ -47,10 +47,15 @@ pipeline {
                     if (changes == 'ALL') {
                         // 첫 빌드이거나 diff 실패 시 전체 빌드
                         env.BOT_CHANGED = 'true'
+                        env.MTF_CHANGED = 'true'
                         env.DASH_API_CHANGED = 'true'
                         env.DASH_UI_CHANGED = 'true'
                     } else {
-                        env.BOT_CHANGED = (changes =~ /(?m)^(src\/|scripts\/|main\.py|requirements\.txt|Dockerfile)/).find() ? 'true' : 'false'
+                        // mtf_bot.py 변경 감지 (mtf-bot 서비스만 재시작)
+                        env.MTF_CHANGED = (changes =~ /(?m)^src\/mtf_bot\.py/).find() ? 'true' : 'false'
+                        // src/ 변경 중 mtf_bot.py만 바뀐 경우 메인 봇은 재시작 불필요
+                        def botFiles = changes.split('\n').findAll { it =~ /^(src\/(?!mtf_bot\.py)|scripts\/|main\.py|requirements\.txt|Dockerfile)/ }
+                        env.BOT_CHANGED = botFiles.size() > 0 ? 'true' : 'false'
                         env.DASH_API_CHANGED = (changes =~ /(?m)^dashboard\/api\//).find() ? 'true' : 'false'
                         env.DASH_UI_CHANGED = (changes =~ /(?m)^dashboard\/ui\//).find() ? 'true' : 'false'
                     }
@@ -62,7 +67,7 @@ pipeline {
                         env.COMPOSE_CHANGED = 'false'
                     }
 
-                    echo "BOT_CHANGED=${env.BOT_CHANGED}, DASH_API_CHANGED=${env.DASH_API_CHANGED}, DASH_UI_CHANGED=${env.DASH_UI_CHANGED}, COMPOSE_CHANGED=${env.COMPOSE_CHANGED}"
+                    echo "BOT_CHANGED=${env.BOT_CHANGED}, MTF_CHANGED=${env.MTF_CHANGED}, DASH_API_CHANGED=${env.DASH_API_CHANGED}, DASH_UI_CHANGED=${env.DASH_UI_CHANGED}, COMPOSE_CHANGED=${env.COMPOSE_CHANGED}"
                 }
             }
         }
@@ -70,7 +75,7 @@ pipeline {
         stage('Build Docker Images') {
             parallel {
                 stage('Bot') {
-                    when { expression { env.BOT_CHANGED == 'true' } }
+                    when { expression { env.BOT_CHANGED == 'true' || env.MTF_CHANGED == 'true' } }
                     steps {
                         sh "docker build -t ${FULL_IMAGE} -t ${LATEST_IMAGE} ."
                     }
@@ -95,7 +100,7 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'gitea-registry-cred', passwordVariable: 'GITEA_TOKEN', usernameVariable: 'GITEA_USER')]) {
                     sh "echo \$GITEA_TOKEN | docker login ${REGISTRY} -u \$GITEA_USER --password-stdin"
                     script {
-                        if (env.BOT_CHANGED == 'true') {
+                        if (env.BOT_CHANGED == 'true' || env.MTF_CHANGED == 'true') {
                             sh "docker push ${FULL_IMAGE}"
                             sh "docker push ${LATEST_IMAGE}"
                         }
@@ -126,6 +131,8 @@ pipeline {
                     if (env.BOT_CHANGED == 'true') {
                         services.add('cointrader')
                         services.add('ls-ratio-collector')
+                    }
+                    if (env.BOT_CHANGED == 'true' || env.MTF_CHANGED == 'true') {
                         services.add('mtf-bot')
                     }
                     if (env.DASH_API_CHANGED == 'true') services.add('dashboard-api')
@@ -145,7 +152,7 @@ pipeline {
         stage('Cleanup') {
             steps {
                 script {
-                    if (env.BOT_CHANGED == 'true') {
+                    if (env.BOT_CHANGED == 'true' || env.MTF_CHANGED == 'true') {
                         sh "docker rmi ${FULL_IMAGE} || true"
                         sh "docker rmi ${LATEST_IMAGE} || true"
                     }
@@ -168,7 +175,7 @@ pipeline {
             sh """
             curl -H "Content-Type: application/json" \
                  -X POST \
-                 -d '{"content": "✅ **[배포 성공]** `cointrader` (Build #${env.BUILD_NUMBER}) 운영 서버(10.1.10.24) 배포 완료!\\n- 🤖 봇: ${env.BOT_CHANGED}\\n- 📊 API: ${env.DASH_API_CHANGED}\\n- 🖥️ UI: ${env.DASH_UI_CHANGED}"}' \
+                 -d '{"content": "✅ **[배포 성공]** `cointrader` (Build #${env.BUILD_NUMBER}) 운영 서버(10.1.10.24) 배포 완료!\\n- 🤖 봇: ${env.BOT_CHANGED}\\n- 📈 MTF: ${env.MTF_CHANGED}\\n- 📊 API: ${env.DASH_API_CHANGED}\\n- 🖥️ UI: ${env.DASH_UI_CHANGED}"}' \
                  ${DISCORD_WEBHOOK}
             """
         }

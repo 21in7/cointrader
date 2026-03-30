@@ -15,10 +15,12 @@ Module 4: ExecutionManager (Dry-run 가상 주문 + SL/TP 관리)
 """
 
 import asyncio
+import json
 import os
 import time as _time
 from datetime import datetime, timezone
 from collections import deque
+from pathlib import Path
 from typing import Optional, Dict, List
 
 import pandas as pd
@@ -399,6 +401,9 @@ class TriggerStrategy:
 # Module 4: ExecutionManager
 # ═══════════════════════════════════════════════════════════════════
 
+_MTF_TRADE_DIR = Path("data/trade_history")
+
+
 class ExecutionManager:
     """
     TriggerStrategy의 신호를 받아 포지션 상태를 관리하고
@@ -408,11 +413,14 @@ class ExecutionManager:
     ATR_SL_MULT = 1.5
     ATR_TP_MULT = 2.3
 
-    def __init__(self):
+    def __init__(self, symbol: str = "XRPUSDT"):
+        self.symbol = symbol
         self.current_position: Optional[str] = None  # None | 'LONG' | 'SHORT'
         self._entry_price: Optional[float] = None
+        self._entry_ts: Optional[str] = None
         self._sl_price: Optional[float] = None
         self._tp_price: Optional[float] = None
+        self._atr_at_entry: Optional[float] = None
 
     def execute(self, signal: str, current_price: float, atr_value: Optional[float]) -> Optional[Dict]:
         """
@@ -455,8 +463,10 @@ class ExecutionManager:
 
         self.current_position = side
         self._entry_price = entry_price
+        self._entry_ts = datetime.now(timezone.utc).isoformat()
         self._sl_price = sl_price
         self._tp_price = tp_price
+        self._atr_at_entry = atr_value
 
         sl_dist = abs(entry_price - sl_price)
         tp_dist = abs(tp_price - entry_price)
@@ -492,8 +502,8 @@ class ExecutionManager:
             "risk_reward": round(rr_ratio, 2),
         }
 
-    def close_position(self, reason: str) -> None:
-        """포지션 청산 (상태 초기화)."""
+    def close_position(self, reason: str, exit_price: float = 0.0, pnl_bps: float = 0.0) -> None:
+        """포지션 청산 + JSONL 기록 (상태 초기화)."""
         if self.current_position is None:
             logger.debug("[ExecutionManager] 청산할 포지션 없음")
             return
@@ -503,6 +513,9 @@ class ExecutionManager:
             f"(진입: {self._entry_price:.4f}) | 사유: {reason}"
         )
 
+        # JSONL에 기록
+        self._save_trade(reason, exit_price, pnl_bps)
+
         # ── 실주문 (프로덕션 전환 시 주석 해제) ──
         # if self.current_position == "LONG":
         #     await self.exchange.create_market_sell_order(symbol, amount)
@@ -511,8 +524,34 @@ class ExecutionManager:
 
         self.current_position = None
         self._entry_price = None
+        self._entry_ts = None
         self._sl_price = None
         self._tp_price = None
+        self._atr_at_entry = None
+
+    def _save_trade(self, reason: str, exit_price: float, pnl_bps: float) -> None:
+        """거래 기록을 JSONL 파일에 append."""
+        record = {
+            "symbol": self.symbol,
+            "side": self.current_position,
+            "entry_price": self._entry_price,
+            "entry_ts": self._entry_ts,
+            "exit_price": exit_price,
+            "exit_ts": datetime.now(timezone.utc).isoformat(),
+            "sl_price": self._sl_price,
+            "tp_price": self._tp_price,
+            "atr": self._atr_at_entry,
+            "pnl_bps": round(pnl_bps, 1),
+            "reason": reason,
+        }
+        try:
+            _MTF_TRADE_DIR.mkdir(parents=True, exist_ok=True)
+            path = _MTF_TRADE_DIR / f"mtf_{self.symbol.replace('/', '').replace(':', '').lower()}.jsonl"
+            with open(path, "a") as f:
+                f.write(json.dumps(record) + "\n")
+            logger.info(f"[ExecutionManager] 거래 기록 저장: {path.name}")
+        except Exception as e:
+            logger.warning(f"[ExecutionManager] 거래 기록 저장 실패: {e}")
 
     def get_position_info(self) -> Dict:
         """현재 포지션 정보 반환."""
@@ -543,7 +582,7 @@ class MTFPullbackBot:
         self.fetcher = DataFetcher(symbol=symbol)
         self.meta = MetaFilter(self.fetcher)
         self.trigger = TriggerStrategy()
-        self.executor = ExecutionManager()
+        self.executor = ExecutionManager(symbol=symbol)
         self.notifier = DiscordNotifier(
             webhook_url=os.getenv("DISCORD_WEBHOOK_URL", ""),
         )
@@ -689,32 +728,35 @@ class MTFPullbackBot:
         if hit_sl and hit_tp:
             exit_price = sl
             pnl = (exit_price - entry) / entry if pos == "LONG" else (entry - exit_price) / entry
-            logger.info(f"[MTFBot] SL+TP 동시 히트 → SL 우선 청산 | PnL: {pnl*10000:+.1f}bps")
-            self.executor.close_position(f"SL 히트 ({exit_price:.4f})")
+            pnl_bps = pnl * 10000
+            logger.info(f"[MTFBot] SL+TP 동시 히트 → SL 우선 청산 | PnL: {pnl_bps:+.1f}bps")
+            self.executor.close_position(f"SL 히트 ({exit_price:.4f})", exit_price, pnl_bps)
             self.notifier._send(
                 f"❌ **[MTF Dry-run] {pos} SL 청산**\n"
                 f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
-                f"PnL: `{pnl*10000:+.1f}bps`"
+                f"PnL: `{pnl_bps:+.1f}bps`"
             )
         elif hit_sl:
             exit_price = sl
             pnl = (exit_price - entry) / entry if pos == "LONG" else (entry - exit_price) / entry
-            logger.info(f"[MTFBot] SL 히트 | 청산가: {exit_price:.4f} | PnL: {pnl*10000:+.1f}bps")
-            self.executor.close_position(f"SL 히트 ({exit_price:.4f})")
+            pnl_bps = pnl * 10000
+            logger.info(f"[MTFBot] SL 히트 | 청산가: {exit_price:.4f} | PnL: {pnl_bps:+.1f}bps")
+            self.executor.close_position(f"SL 히트 ({exit_price:.4f})", exit_price, pnl_bps)
             self.notifier._send(
                 f"❌ **[MTF Dry-run] {pos} SL 청산**\n"
                 f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
-                f"PnL: `{pnl*10000:+.1f}bps`"
+                f"PnL: `{pnl_bps:+.1f}bps`"
             )
         elif hit_tp:
             exit_price = tp
             pnl = (exit_price - entry) / entry if pos == "LONG" else (entry - exit_price) / entry
-            logger.info(f"[MTFBot] TP 히트 | 청산가: {exit_price:.4f} | PnL: {pnl*10000:+.1f}bps")
-            self.executor.close_position(f"TP 히트 ({exit_price:.4f})")
+            pnl_bps = pnl * 10000
+            logger.info(f"[MTFBot] TP 히트 | 청산가: {exit_price:.4f} | PnL: {pnl_bps:+.1f}bps")
+            self.executor.close_position(f"TP 히트 ({exit_price:.4f})", exit_price, pnl_bps)
             self.notifier._send(
                 f"✅ **[MTF Dry-run] {pos} TP 청산**\n"
                 f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
-                f"PnL: `{pnl*10000:+.1f}bps`"
+                f"PnL: `{pnl_bps:+.1f}bps`"
             )
 
 
