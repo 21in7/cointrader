@@ -10,7 +10,7 @@ Module 4: ExecutionManager (Dry-run 가상 주문 + SL/TP 관리)
   - Look-ahead bias 원천 차단: 완성된 캔들만 사용 ([:-1] 슬라이싱)
   - Binance 서버 딜레이 고려: 캔들 판별 시 2~5초 range
   - REST 폴링 기반 안정성: WebSocket 대신 30초 주기 폴링
-  - 메모리 최적화: deque(maxlen=200)
+  - 메모리 최적화: deque(maxlen=250)
   - Dry-run 모드: 4월 OOS 검증 기간, 실주문 API 주석 처리
 """
 

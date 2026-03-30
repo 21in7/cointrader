@@ -151,3 +151,7 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-21 | `ml-validation-pipeline` (plan) | Completed |
 | 2026-03-22 | `backtest-market-context` (design) | 설계 완료, 구현 대기 |
 | 2026-03-22 | `testnet-uds-verification` (design) | 설계 완료, 구현 대기 |
+| 2026-03-30 | `ls-ratio-backtest` (design + result) | Edge 없음 확정, 폐기 |
+| 2026-03-30 | `fr-oi-backtest` (result) | SHORT PF=1.88이나 대칭성 실패(Case2), 폐기 |
+| 2026-03-30 | `public-api-research-closed` | Binance 공개 API 전수 테스트 완료, 단독 edge 없음 |
+| 2026-03-30 | `mtf-pullback-bot` | MTF Pullback Bot 배포, 4월 OOS Dry-run 검증 진행 중 |

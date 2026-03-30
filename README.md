@@ -25,6 +25,7 @@ Binance Futures 자동매매 봇. 복합 기술 지표와 킬스위치로 XRPUSD
 - **모니터링 대시보드**: 거래 내역, 수익 통계, 차트를 웹에서 조회
 - **주간 전략 리포트**: 자동 성능 측정, 추이 추적, 킬스위치 모니터링, ML 재학습 시점 판단
 - **종목 비교 분석**: 심볼별 파라미터 sweep + Robust Monte Carlo 포지션 사이징
+- **MTF Pullback Bot**: 1h MetaFilter(EMA50/200 + ADX) + 15m 3캔들 풀백 시퀀스 기반 Dry-run 봇 (OOS 검증용)
 
 ---
 
@@ -278,6 +279,7 @@ cointrader/
 │   ├── label_builder.py       # 학습 레이블 생성
 │   ├── dataset_builder.py     # 벡터화 데이터셋 빌더 (학습용)
 │   ├── backtester.py          # 백테스트 엔진 (단일 + Walk-Forward)
+│   ├── mtf_bot.py             # MTF Pullback Bot (1h MetaFilter + 15m 3캔들 풀백 + Dry-run)
 │   ├── risk_manager.py        # 공유 리스크 관리 (asyncio.Lock, 동일 방향 제한)
 │   ├── notifier.py            # Discord 웹훅 알림
 │   └── logger_setup.py        # Loguru 로거 설정

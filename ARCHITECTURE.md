@@ -12,6 +12,7 @@
 3. [5개 레이어 상세](#3-5개-레이어-상세) — 각 레이어의 역할과 동작 원리
 4. [MLOps 파이프라인](#4-mlops-파이프라인) — ML 모델의 학습·배포·모니터링 전체 흐름
 5. [핵심 동작 시나리오](#5-핵심-동작-시나리오) — 실제 상황별 봇의 동작 흐름도
+5-1. [MTF Pullback Bot](#5-1-mtf-pullback-bot) — 멀티타임프레임 풀백 전략 Dry-run 봇
 6. [테스트 커버리지](#6-테스트-커버리지) — 무엇을 어떻게 테스트하는지
 7. [파일 구조](#7-파일-구조) — 전체 파일 역할 요약
 
@@ -668,6 +669,49 @@ sequenceDiagram
 
 ---
 
+## 5-1. MTF Pullback Bot
+
+기존 메인 봇(`bot.py`)과 **별도로** 운영되는 멀티타임프레임 풀백 전략 봇입니다. 4월 OOS(Out-of-Sample) 검증 기간 동안 Dry-run 모드로 실행됩니다.
+
+**파일:** `src/mtf_bot.py`
+
+### 아키텍처 (4개 모듈)
+
+```
+Module 1: TimeframeSync + DataFetcher
+  │  REST 폴링(30초 주기), deque(maxlen=250)으로 15m/1h 캔들 관리
+  │  Look-ahead bias 차단: 1h 캔들은 [:-1] 슬라이싱으로 미완성 봉 제외
+  ▼
+Module 2: MetaFilter (1h 거시 추세 판독)
+  │  EMA50 vs EMA200 + ADX > 20 → LONG_ALLOWED / SHORT_ALLOWED / WAIT
+  │  WAIT 상태에서는 모든 진입을 차단 (횡보장 방어)
+  ▼
+Module 3: TriggerStrategy (15m 풀백 패턴 인식)
+  │  3캔들 시퀀스: t-2(기준) → t-1(풀백: EMA 이탈 + 거래량 고갈) → t(돌파: EMA 복귀)
+  │  Volume-backed 확인: vol_t-1 < vol_sma20 × 0.50
+  ▼
+Module 4: ExecutionManager (Dry-run 가상 주문)
+  │  가상 포지션 진입/청산, ATR 기반 SL/TP 관리
+  └→ Discord 알림
+```
+
+### 데이터 흐름
+
+1. `DataFetcher`가 Binance에서 250개 캔들 초기 로드 후 30초마다 폴링 업데이트
+2. `TimeframeSync`가 15m/1h 캔들 마감 시점(매 정각+2~5초) 감지
+3. 1h 마감 시: `MetaFilter`가 완성된 1h 캔들(249개)로 EMA50/200 + ADX 계산 → 거시 상태 갱신
+4. 15m 마감 시: `TriggerStrategy`가 meta_state 하에서 3캔들 풀백 시퀀스 확인 → 신호 생성
+5. Heartbeat 로그에 ADX, EMA50, EMA200, ATR 값을 출력하여 실시간 진단 가능
+
+### 설계 원칙
+
+- **Look-ahead bias 원천 차단**: `get_1h_dataframe_completed()`가 `[:-1]`로 미완성 봉 제거, 따라서 버퍼 250개 → 완성 249개 → EMA 200 정상 계산
+- **REST 폴링 안정성**: WebSocket 대신 30초 주기 REST 폴링으로 연결 끊김 리스크 제거
+- **Binance 서버 딜레이 고려**: 캔들 마감 판별 시 2~5초 윈도우 적용
+- **메인 봇과 독립**: `bot.py`와 별도 프로세스, 별도 Docker 서비스로 배포
+
+---
+
 ## 6. 테스트 커버리지
 
 ### 6.1 테스트 실행
@@ -750,6 +794,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `src/label_builder.py` | MLOps | 학습 레이블 생성 (ATR SL/TP 룩어헤드) |
 | `src/dataset_builder.py` | MLOps | 벡터화 데이터셋 빌더 (학습용) |
 | `src/backtester.py` | MLOps | 백테스트 엔진 (단일 + Walk-Forward) |
+| `src/mtf_bot.py` | MTF Bot | 멀티타임프레임 풀백 봇 (1h MetaFilter + 15m TriggerStrategy + Dry-run ExecutionManager) |
 | `src/logger_setup.py` | — | Loguru 로거 설정 |
 | `scripts/fetch_history.py` | MLOps | 과거 캔들 + OI/펀딩비 수집 |
 | `scripts/train_model.py` | MLOps | LightGBM 모델 학습 |
