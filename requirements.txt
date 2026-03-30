@@ -15,3 +15,4 @@ pyarrow>=15.0.0
 onnxruntime>=1.18.0
 optuna>=3.6.0
 quantstats>=0.0.81
+ccxt>=4.5.0

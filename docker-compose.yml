@@ -52,6 +52,22 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  mtf-bot:
+    image: git.gihyeon.com/gihyeon/cointrader:latest
+    container_name: mtf-bot
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./logs:/app/logs
+    entrypoint: ["python", "main_mtf.py"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
   ls-ratio-collector:
     image: git.gihyeon.com/gihyeon/cointrader:latest
     container_name: ls-ratio-collector
