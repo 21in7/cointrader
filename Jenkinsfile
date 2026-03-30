@@ -126,6 +126,7 @@ pipeline {
                     if (env.BOT_CHANGED == 'true') {
                         services.add('cointrader')
                         services.add('ls-ratio-collector')
+                        services.add('mtf-bot')
                     }
                     if (env.DASH_API_CHANGED == 'true') services.add('dashboard-api')
                     if (env.DASH_UI_CHANGED == 'true') services.add('dashboard-ui')
