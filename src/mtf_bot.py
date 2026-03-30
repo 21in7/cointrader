@@ -625,12 +625,19 @@ class MTFPullbackBot:
         last_close = float(df_15m.iloc[-1]["close"]) if df_15m is not None and len(df_15m) > 0 else 0
         pos_info = self.executor.current_position or "없음"
 
-        # Heartbeat: 15분마다 무조건 출력
+        # Heartbeat: 15분마다 무조건 출력 (메타 지표 포함)
+        meta_info = self.meta.get_meta_info()
+        adx_val = meta_info.get("adx")
+        ema50_val = meta_info.get("ema50")
+        ema200_val = meta_info.get("ema200")
+        adx_str = f"{adx_val:.2f}" if adx_val is not None else "N/A"
+        ema50_str = f"{ema50_val:.4f}" if ema50_val is not None else "N/A"
+        ema200_str = f"{ema200_val:.4f}" if ema200_val is not None else "N/A"
+        atr_str = f"{atr:.6f}" if atr else "N/A"
         logger.info(
             f"[Heartbeat] 15m 마감 ({now_str}) | Meta: {meta_state} | "
-            f"ATR: {atr:.6f} | Close: {last_close:.4f} | Pos: {pos_info}" if atr else
-            f"[Heartbeat] 15m 마감 ({now_str}) | Meta: {meta_state} | "
-            f"ATR: N/A | Close: {last_close:.4f} | Pos: {pos_info}"
+            f"ADX: {adx_str} | EMA50: {ema50_str} | EMA200: {ema200_str} | "
+            f"ATR: {atr_str} | Close: {last_close:.4f} | Pos: {pos_info}"
         )
 
         signal = self.trigger.generate_signal(df_15m, meta_state)
