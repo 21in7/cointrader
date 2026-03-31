@@ -86,6 +86,19 @@ class DataFetcher:
         self._last_15m_ts: int = 0  # 마지막으로 저장된 15m 캔들 timestamp
         self._last_1h_ts: int = 0
 
+    @staticmethod
+    def _remove_incomplete_candle(df: pd.DataFrame, interval_sec: int) -> pd.DataFrame:
+        """미완성(진행 중) 캔들을 조건부로 제거. ccxt timestamp는 ms 단위."""
+        if df.empty:
+            return df
+        now_ms = int(_time.time() * 1000)
+        current_candle_start_ms = (now_ms // (interval_sec * 1000)) * (interval_sec * 1000)
+        # DataFrame index가 datetime인 경우 원본 timestamp 컬럼이 없으므로 index에서 추출
+        last_open_ms = int(df.index[-1].timestamp() * 1000)
+        if last_open_ms >= current_candle_start_ms:
+            return df.iloc[:-1].copy()
+        return df
+
     async def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 250) -> List[List]:
         """
         ccxt를 통해 OHLCV 데이터 fetch.
@@ -115,69 +128,31 @@ class DataFetcher:
             f"[DataFetcher] 초기화 완료: 15m={len(self.klines_15m)}개, 1h={len(self.klines_1h)}개"
         )
 
-    async def poll_update(self, interval: int = 30):
-        """
-        30초 주기로 REST API 폴링. 새 캔들이 나오면 deque에 append.
-        무한 루프 — 백그라운드 태스크로 실행.
-        """
-        logger.info(f"[DataFetcher] 폴링 시작 (interval={interval}s)")
-        while True:
-            try:
-                await asyncio.sleep(interval)
-
-                # 15m 업데이트: 최근 3개 fetch (중복 방지)
-                raw_15m = await self.fetch_ohlcv(self.symbol, "15m", limit=3)
-                new_15m = 0
-                for candle in raw_15m:
-                    if candle[0] > self._last_15m_ts:
-                        self.klines_15m.append(candle)
-                        self._last_15m_ts = candle[0]
-                        new_15m += 1
-
-                # 1h 업데이트: 최근 3개 fetch
-                raw_1h = await self.fetch_ohlcv(self.symbol, "1h", limit=3)
-                new_1h = 0
-                for candle in raw_1h:
-                    if candle[0] > self._last_1h_ts:
-                        self.klines_1h.append(candle)
-                        self._last_1h_ts = candle[0]
-                        new_1h += 1
-
-                if new_15m > 0 or new_1h > 0:
-                    logger.info(
-                        f"[DataFetcher] 캔들 업데이트: 15m +{new_15m} (총 {len(self.klines_15m)}), "
-                        f"1h +{new_1h} (총 {len(self.klines_1h)})"
-                    )
-
-            except Exception as e:
-                logger.error(f"[DataFetcher] 폴링 에러: {e}")
-                await asyncio.sleep(5)  # 에러 시 짧은 대기 후 재시도
-
     def get_15m_dataframe(self) -> Optional[pd.DataFrame]:
-        """모든 15m 캔들을 DataFrame으로 반환."""
+        """완성된 15m 캔들을 DataFrame으로 반환 (미완성 캔들 조건부 제거)."""
         if not self.klines_15m:
             return None
         data = list(self.klines_15m)
         df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
         df = df.set_index("timestamp")
-        return df
+        return self._remove_incomplete_candle(df, interval_sec=900)
 
     def get_1h_dataframe_completed(self) -> Optional[pd.DataFrame]:
         """
         '완성된' 1h 캔들만 반환.
 
-        핵심: [:-1] 슬라이싱으로 진행 중인 최신 1h 캔들 제외.
+        조건부 슬라이싱: _remove_incomplete_candle()로 진행 중인 최신 1h 캔들 제외.
         이유: Look-ahead bias 원천 차단 — 아직 완성되지 않은 캔들의
               high/low/close는 미래 데이터이므로 지표 계산에 사용하면 안 됨.
         """
         if len(self.klines_1h) < 2:
             return None
-        completed = list(self.klines_1h)[:-1]  # ← 핵심: 미완성 봉 제외
-        df = pd.DataFrame(completed, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        data = list(self.klines_1h)
+        df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
         df = df.set_index("timestamp")
-        return df
+        return self._remove_incomplete_candle(df, interval_sec=3600)
 
     async def close(self):
         """ccxt exchange 연결 정리."""
@@ -197,15 +172,27 @@ class MetaFilter:
 
     def __init__(self, data_fetcher: DataFetcher):
         self.data_fetcher = data_fetcher
+        self._cached_indicators: Optional[pd.DataFrame] = None
+        self._cache_timestamp: Optional[pd.Timestamp] = None
 
     def _calc_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """1h DataFrame에 EMA50, EMA200, ADX, ATR 계산."""
+        """1h DataFrame에 EMA50, EMA200, ADX, ATR 계산 (캔들 단위 캐싱)."""
+        if df is None or df.empty:
+            return df
+
+        last_ts = df.index[-1]
+        if self._cached_indicators is not None and self._cache_timestamp == last_ts:
+            return self._cached_indicators
+
         df = df.copy()
         df["ema50"] = ta.ema(df["close"], length=self.EMA_FAST)
         df["ema200"] = ta.ema(df["close"], length=self.EMA_SLOW)
         adx_df = ta.adx(df["high"], df["low"], df["close"], length=14)
         df["adx"] = adx_df["ADX_14"]
         df["atr"] = ta.atr(df["high"], df["low"], df["close"], length=14)
+
+        self._cached_indicators = df
+        self._cache_timestamp = last_ts
         return df
 
     def get_market_state(self) -> str:
@@ -574,6 +561,9 @@ class ExecutionManager:
 class MTFPullbackBot:
     """MTF Pullback Bot 메인 루프 — Dry-run OOS 검증용."""
 
+    # TODO(LIVE): Kill switch 로직 구현 필요 (Fast Kill 8연패 + Slow Kill PF<0.75) — 2026-04-15 LIVE 전환 시
+    # TODO(LIVE): 글로벌 RiskManager 통합 필요 — 2026-04-15 LIVE 전환 시
+
     LOOP_INTERVAL = 1   # 초 (TimeframeSync 4초 윈도우를 놓치지 않기 위해)
     POLL_INTERVAL = 30  # 데이터 폴링 주기 (초)
 
@@ -691,8 +681,8 @@ class MTFPullbackBot:
                 side = result["action"]
                 sl_dist = abs(result["entry_price"] - result["sl_price"])
                 tp_dist = abs(result["tp_price"] - result["entry_price"])
-                self.notifier._send(
-                    f"📌 **[MTF Dry-run] 가상 {side} 진입**\n"
+                self.notifier.notify_info(
+                    f"**[MTF Dry-run] 가상 {side} 진입**\n"
                     f"진입가: `{result['entry_price']:.4f}` | ATR: `{result['atr']:.6f}`\n"
                     f"SL: `{result['sl_price']:.4f}` ({sl_dist:.4f}) | "
                     f"TP: `{result['tp_price']:.4f}` ({tp_dist:.4f})\n"
@@ -731,8 +721,8 @@ class MTFPullbackBot:
             pnl_bps = pnl * 10000
             logger.info(f"[MTFBot] SL+TP 동시 히트 → SL 우선 청산 | PnL: {pnl_bps:+.1f}bps")
             self.executor.close_position(f"SL 히트 ({exit_price:.4f})", exit_price, pnl_bps)
-            self.notifier._send(
-                f"❌ **[MTF Dry-run] {pos} SL 청산**\n"
+            self.notifier.notify_info(
+                f"**[MTF Dry-run] {pos} SL 청산**\n"
                 f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
                 f"PnL: `{pnl_bps:+.1f}bps`"
             )
@@ -742,8 +732,8 @@ class MTFPullbackBot:
             pnl_bps = pnl * 10000
             logger.info(f"[MTFBot] SL 히트 | 청산가: {exit_price:.4f} | PnL: {pnl_bps:+.1f}bps")
             self.executor.close_position(f"SL 히트 ({exit_price:.4f})", exit_price, pnl_bps)
-            self.notifier._send(
-                f"❌ **[MTF Dry-run] {pos} SL 청산**\n"
+            self.notifier.notify_info(
+                f"**[MTF Dry-run] {pos} SL 청산**\n"
                 f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
                 f"PnL: `{pnl_bps:+.1f}bps`"
             )
@@ -753,8 +743,8 @@ class MTFPullbackBot:
             pnl_bps = pnl * 10000
             logger.info(f"[MTFBot] TP 히트 | 청산가: {exit_price:.4f} | PnL: {pnl_bps:+.1f}bps")
             self.executor.close_position(f"TP 히트 ({exit_price:.4f})", exit_price, pnl_bps)
-            self.notifier._send(
-                f"✅ **[MTF Dry-run] {pos} TP 청산**\n"
+            self.notifier.notify_info(
+                f"**[MTF Dry-run] {pos} TP 청산**\n"
                 f"진입: `{entry:.4f}` → 청산: `{exit_price:.4f}`\n"
                 f"PnL: `{pnl_bps:+.1f}bps`"
             )

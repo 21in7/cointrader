@@ -6,7 +6,7 @@ MTF Pullback Bot — OOS Dry-run 평가 스크립트
 
 Usage:
     python scripts/evaluate_oos.py
-    python scripts/evaluate_oos.py --symbol XRPUSDTUSDT
+    python scripts/evaluate_oos.py --symbol xrpusdt
     python scripts/evaluate_oos.py --local  # 로컬 파일만 사용 (서버 fetch 스킵)
 """
 
@@ -153,7 +153,7 @@ def print_report(df: pd.DataFrame):
 
 def main():
     parser = argparse.ArgumentParser(description="MTF OOS Dry-run 평가")
-    parser.add_argument("--symbol", default="xrpusdtusdt", help="심볼 (파일명 소문자, 기본: xrpusdtusdt)")
+    parser.add_argument("--symbol", default="xrpusdt", help="심볼 (파일명 소문자, 기본: xrpusdt)")
     parser.add_argument("--local", action="store_true", help="로컬 파일만 사용 (서버 fetch 스킵)")
     args = parser.parse_args()
 
