@@ -330,7 +330,7 @@ ML 필터를 통과한 신호를 실제 주문으로 변환하고, 리스크 한
 **주문 흐름:**
 
 ```
-1. set_leverage(10x)
+1. set_leverage(20x)
 2. place_order(MARKET)              ← 진입
 3. place_order(STOP_MARKET)         ← SL 설정 (3회 재시도)
 4. place_order(TAKE_PROFIT_MARKET)  ← TP 설정 (3회 재시도)
@@ -603,7 +603,7 @@ sequenceDiagram
 
         BOT->>EX: get_balance()
         BOT->>RM: get_dynamic_margin_ratio(balance)
-        BOT->>EX: set_leverage(10)
+        BOT->>EX: set_leverage(20)
         BOT->>EX: place_order(MARKET, BUY, qty=100.0)
         BOT->>EX: place_order(STOP_MARKET, SELL, stop=2.3100)
         BOT->>EX: place_order(TAKE_PROFIT_MARKET, SELL, stop=2.4150)
@@ -721,25 +721,29 @@ pytest tests/ -v          # 전체 실행
 bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 ```
 
-`tests/` 폴더에 15개 테스트 파일, 총 **138개의 테스트 케이스**가 작성되어 있습니다.
+`tests/` 폴더에 19개 테스트 파일, 총 **183개의 테스트 케이스**가 작성되어 있습니다.
 
 ### 6.2 모듈별 테스트 현황
 
 | 테스트 파일 | 대상 모듈 | 케이스 | 주요 검증 항목 |
 |------------|----------|:------:|--------------|
-| `test_bot.py` | `src/bot.py` | 11 | 반대 시그널 재진입, ML 차단 시 스킵, OI/펀딩비 피처 전달 |
+| `test_bot.py` | `src/bot.py` | 18 | 반대 시그널 재진입, ML 차단 시 스킵, OI/펀딩비 피처 전달 |
 | `test_indicators.py` | `src/indicators.py` | 7 | RSI 범위, MACD 컬럼, 볼린저 대소관계, ADX 횡보장 차단 |
-| `test_ml_features.py` | `src/ml_features.py` | 11 | 26개 피처 수, RS 분모 0 처리, NaN 없음 |
+| `test_ml_features.py` | `src/ml_features.py` | 14 | 26개 피처 수, RS 분모 0 처리, NaN 없음 |
 | `test_ml_filter.py` | `src/ml_filter.py` | 5 | 모델 없을 때 폴백, 임계값 판단, 핫리로드 |
-| `test_risk_manager.py` | `src/risk_manager.py` | 13 | 일일 손실 한도, 동일 방향 제한, 동적 증거금 비율 |
-| `test_exchange.py` | `src/exchange.py` | 8 | 수량 계산, OI·펀딩비 조회 정상/오류 |
-| `test_data_stream.py` | `src/data_stream.py` | 6 | 3심볼 버퍼, 캔들 파싱, 프리로드 200개 |
+| `test_risk_manager.py` | `src/risk_manager.py` | 15 | 일일 손실 한도, 동일 방향 제한, 동적 증거금 비율 |
+| `test_exchange.py` | `src/exchange.py` | 12 | 수량 계산, OI·펀딩비 조회 정상/오류 |
+| `test_data_stream.py` | `src/data_stream.py` | 7 | 3심볼 버퍼, 캔들 파싱, 프리로드 200개 |
 | `test_label_builder.py` | `src/label_builder.py` | 4 | TP/SL 도달 레이블, 미결 → None |
-| `test_dataset_builder.py` | `src/dataset_builder.py` | 9 | DataFrame 반환, 필수 컬럼, inf/NaN 없음 |
+| `test_dataset_builder.py` | `src/dataset_builder.py` | 14 | DataFrame 반환, 필수 컬럼, inf/NaN 없음 |
 | `test_mlx_filter.py` | `src/mlx_filter.py` | 5 | GPU 학습, 저장/로드 동일 예측 (Apple Silicon 전용) |
 | `test_fetch_history.py` | `scripts/fetch_history.py` | 5 | OI=0 Upsert, 중복 방지, 타임스탬프 정렬 |
-| `test_config.py` | `src/config.py` | 6 | 환경변수 로드, symbols 리스트 파싱 |
-| `test_weekly_report.py` | `scripts/weekly_report.py` | 15 | 백테스트, 대시보드 API, 추이 분석, ML 트리거, 스윕 |
+| `test_config.py` | `src/config.py` | 9 | 환경변수 로드, symbols 리스트 파싱 |
+| `test_weekly_report.py` | `scripts/weekly_report.py` | 17 | 백테스트, 대시보드 API, 추이 분석, ML 트리거, 스윕 |
+| `test_dashboard_api.py` | `dashboard/` | 16 | 대시보드 API 엔드포인트, 거래 통계 |
+| `test_log_parser.py` | `dashboard/` | 8 | 로그 파싱, 필터링 |
+| `test_ml_pipeline_fixes.py` | ML 파이프라인 | 7 | ML 파이프라인 버그 수정 검증 |
+| `test_mtf_bot.py` | `src/mtf_bot.py` | 20 | MetaFilter, TriggerStrategy, ExecutionManager, SL/TP 체크 |
 
 > `test_mlx_filter.py`는 Apple Silicon(`mlx` 패키지)이 없는 환경에서 자동 스킵됩니다.
 
@@ -764,6 +768,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | OI 변화율 계산 | ✅ | ✅ | `test_bot` |
 | Parquet Upsert | ✅ | — | `test_fetch_history` |
 | 주간 리포트 | ✅ | ✅ | `test_weekly_report` |
+| MTF Pullback Bot | ✅ | ✅ | `test_mtf_bot` (20 cases) |
 | User Data Stream TP/SL | ❌ | — | 미작성 (WebSocket 의존) |
 | Discord 알림 전송 | ❌ | — | 미작성 (외부 웹훅 의존) |
 
@@ -795,6 +800,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `src/dataset_builder.py` | MLOps | 벡터화 데이터셋 빌더 (학습용) |
 | `src/backtester.py` | MLOps | 백테스트 엔진 (단일 + Walk-Forward) |
 | `src/mtf_bot.py` | MTF Bot | 멀티타임프레임 풀백 봇 (1h MetaFilter + 15m TriggerStrategy + Dry-run ExecutionManager) |
+| `src/backtest_validator.py` | MLOps | 백테스트 결과 검증 |
 | `src/logger_setup.py` | — | Loguru 로거 설정 |
 | `scripts/fetch_history.py` | MLOps | 과거 캔들 + OI/펀딩비 수집 |
 | `scripts/train_model.py` | MLOps | LightGBM 모델 학습 |
@@ -807,4 +813,16 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `scripts/compare_symbols.py` | MLOps | 종목 비교 백테스트 (심볼별 파라미터 sweep) |
 | `scripts/position_sizing_analysis.py` | MLOps | Robust Monte Carlo 포지션 사이징 분석 |
 | `scripts/run_backtest.py` | MLOps | 단일 백테스트 CLI |
+| `scripts/mtf_backtest.py` | MLOps | MTF 풀백 전략 백테스트 |
+| `scripts/evaluate_oos.py` | MLOps | OOS Dry-run 평가 스크립트 |
+| `scripts/revalidate_apr15.py` | MLOps | 4월 15일 재검증 스크립트 |
+| `scripts/collect_oi.py` | MLOps | OI 데이터 수집 |
+| `scripts/collect_ls_ratio.py` | MLOps | 롱/숏 비율 수집 |
+| `scripts/fr_oi_backtest.py` | MLOps | 펀딩비+OI 백테스트 |
+| `scripts/funding_oi_analysis.py` | MLOps | 펀딩비+OI 분석 |
+| `scripts/ls_ratio_backtest.py` | MLOps | 롱/숏 비율 백테스트 |
+| `scripts/profile_training.py` | MLOps | 학습 프로파일링 |
+| `scripts/taker_ratio_analysis.py` | MLOps | 테이커 비율 분석 |
+| `scripts/trade_ls_analysis.py` | MLOps | 거래 롱/숏 분석 |
+| `scripts/verify_prod_api.py` | MLOps | 프로덕션 API 검증 |
 | `models/{symbol}/active_lgbm_params.json` | MLOps | 심볼별 승인된 LightGBM 파라미터 |
