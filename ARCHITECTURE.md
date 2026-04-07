@@ -675,12 +675,18 @@ sequenceDiagram
 
 **파일:** `src/mtf_bot.py`
 
+### 전략 핵심 아이디어
+
+> **"1시간봉으로 추세를 확인하고, 15분봉에서 일시적 이탈(풀백) 후 복귀하는 순간에 추세 방향으로 진입한다."**
+
+메인 봇(`bot.py`)이 RSI·MACD·BB 등 기술 지표 가중치 합산으로 신호를 만드는 것과 달리, MTF 봇은 **타임프레임 간 정보 비대칭**을 활용합니다. 상위 프레임(1h)의 거시 추세가 확인된 상태에서, 하위 프레임(15m)의 일시적 역행을 노이즈로 간주하고 추세 복귀 시점에 진입합니다.
+
 ### 아키텍처 (4개 모듈)
 
 ```
 Module 1: TimeframeSync + DataFetcher
   │  REST 폴링(30초 주기), deque(maxlen=250)으로 15m/1h 캔들 관리
-  │  Look-ahead bias 차단: 1h 캔들은 [:-1] 슬라이싱으로 미완성 봉 제외
+  │  Look-ahead bias 차단: _remove_incomplete_candle()로 미완성 봉 제외
   ▼
 Module 2: MetaFilter (1h 거시 추세 판독)
   │  EMA50 vs EMA200 + ADX > 20 → LONG_ALLOWED / SHORT_ALLOWED / WAIT
@@ -692,23 +698,148 @@ Module 3: TriggerStrategy (15m 풀백 패턴 인식)
   ▼
 Module 4: ExecutionManager (Dry-run 가상 주문)
   │  가상 포지션 진입/청산, ATR 기반 SL/TP 관리
-  └→ Discord 알림
+  │  듀얼 레이어 킬스위치: Fast Kill (8연패) + Slow Kill (15거래 PF<0.75)
+  └→ Discord 알림 + JSONL 거래 기록
 ```
 
-### 데이터 흐름
+### 작동 원리 상세
 
-1. `DataFetcher`가 Binance에서 250개 캔들 초기 로드 후 30초마다 폴링 업데이트
-2. `TimeframeSync`가 15m/1h 캔들 마감 시점(매 정각+2~5초) 감지
-3. 1h 마감 시: `MetaFilter`가 완성된 1h 캔들(249개)로 EMA50/200 + ADX 계산 → 거시 상태 갱신
-4. 15m 마감 시: `TriggerStrategy`가 meta_state 하에서 3캔들 풀백 시퀀스 확인 → 신호 생성
-5. Heartbeat 로그에 ADX, EMA50, EMA200, ATR 값을 출력하여 실시간 진단 가능
+#### Module 1: TimeframeSync + DataFetcher
+
+**TimeframeSync** — 현재 시각이 캔들 마감 직후인지 판별합니다.
+
+- 15분 캔들: 분(minute)이 `{0, 15, 30, 45}` 이고 초(second)가 2~5초 사이
+- 1시간 캔들: 분이 `0`이고 초가 2~5초 사이
+- 2~5초 윈도우는 Binance 서버가 캔들을 확정하는 딜레이를 고려한 것
+
+**DataFetcher** — ccxt를 통해 Binance Futures REST API로 OHLCV 데이터를 관리합니다.
+
+- 초기화 시 15m/1h 각각 250개 캔들을 `deque(maxlen=250)`에 적재
+- 30초마다 최근 3개 캔들을 폴링하여 새 캔들만 추가 (timestamp 비교로 중복 방지)
+- `_remove_incomplete_candle()`: 현재 진행 중인 캔들의 open timestamp를 계산하여, 마지막 캔들이 미완성이면 제거 → Look-ahead bias 원천 차단
+- WebSocket 대신 REST 폴링을 선택한 이유: 연결 끊김 리스크 제거, 30초 주기면 15분봉 매매에 충분
+
+#### Module 2: MetaFilter (1h 거시 추세 판독)
+
+완성된 1h 캔들로 거시 시장 상태를 3가지로 분류합니다.
+
+```
+입력: 1h OHLCV (완성 캔들만)
+  ↓
+EMA50 = EMA(close, 50)   ← 중기 이동평균
+EMA200 = EMA(close, 200)  ← 장기 이동평균
+ADX = ADX(14)             ← 추세 강도 (0~100)
+ATR = ATR(14)             ← 변동성 (SL/TP 계산용)
+  ↓
+판정:
+  EMA50 > EMA200 AND ADX > 20  → LONG_ALLOWED  (상승 추세 확인)
+  EMA50 < EMA200 AND ADX > 20  → SHORT_ALLOWED (하락 추세 확인)
+  그 외                         → WAIT          (횡보장, 진입 차단)
+```
+
+- **ADX 20 기준**: ADX가 20 미만이면 추세가 약하다고 판단, EMA 크로스만으로 진입하지 않음
+- **캔들 단위 캐싱**: 동일 1h 캔들 timestamp에 대해 지표를 재계산하지 않음 (`_cache_timestamp` 비교)
+- MetaFilter가 `WAIT`를 반환하면 Module 3(TriggerStrategy)는 아예 호출되지 않음
+
+#### Module 3: TriggerStrategy (15m 풀백 패턴 인식)
+
+MetaFilter가 추세를 확인한 후, 15분봉에서 **3캔들 시퀀스** 풀백 패턴을 인식합니다.
+
+```
+LONG 시나리오 (meta_state = LONG_ALLOWED):
+
+  t-2 ────── 기준 캔들 (Vol_SMA20 산출용)
+  t-1 ────── 풀백 캔들: ① close < EMA15 (이탈) AND ② volume < Vol_SMA20 × 0.50 (거래량 고갈)
+  t   ────── 돌파 캔들: close > EMA15 (복귀) → EXECUTE_LONG 신호
+
+SHORT 시나리오 (meta_state = SHORT_ALLOWED):
+
+  t-2 ────── 기준 캔들
+  t-1 ────── 풀백 캔들: ① close > EMA15 (이탈) AND ② volume < Vol_SMA20 × 0.50 (거래량 고갈)
+  t   ────── 돌파 캔들: close < EMA15 (복귀) → EXECUTE_SHORT 신호
+```
+
+**3가지 조건이 모두 충족**되어야 진입 신호가 발생합니다:
+
+1. **EMA 이탈** (t-1): 추세 반대 방향으로 일시 이탈 → 풀백 확인
+2. **거래량 고갈** (t-1): `vol_t-1 / vol_sma20_t-2 < 0.50` → 이탈이 거래량 없는 가짜 움직임인지 확인
+3. **EMA 복귀** (t): 추세 방향으로 다시 돌아옴 → 풀백 종료, 추세 재개 확인
+
+하나라도 불충족이면 `HOLD`를 반환하며, 불충족 사유를 `_last_info`에 기록합니다.
+
+#### Module 4: ExecutionManager (가상 주문 + SL/TP + 킬스위치)
+
+**진입**: TriggerStrategy의 신호 + MetaFilter의 1h ATR 값으로 SL/TP를 설정합니다.
+
+| 항목 | LONG | SHORT |
+|------|------|-------|
+| SL | entry - ATR × 1.5 | entry + ATR × 1.5 |
+| TP | entry + ATR × 2.3 | entry - ATR × 2.3 |
+| R:R | 1 : 1.53 | 1 : 1.53 |
+
+- 중복 진입 차단: 이미 포지션이 있으면 새 신호 무시
+- ATR이 None/0/NaN이면 주문 차단
+
+**SL/TP 모니터링**: 매 루프(1초)마다 보유 포지션의 SL/TP 도달을 15m 캔들 high/low로 확인합니다.
+
+- LONG: `low ≤ SL` → SL 청산, `high ≥ TP` → TP 청산
+- SHORT: `high ≥ SL` → SL 청산, `low ≤ TP` → TP 청산
+- SL+TP 동시 히트 시: **SL 우선** (보수적 접근)
+- PnL은 bps(basis points) 단위로 계산: `(exit - entry) / entry × 10000`
+
+**거래 기록**: 모든 청산은 `data/trade_history/mtf_{symbol}.jsonl`에 JSONL로 저장됩니다. 기록 항목: symbol, side, entry/exit price·ts, sl/tp price, atr, pnl_bps, reason.
+
+**듀얼 킬스위치**:
+
+| 종류 | 조건 | 설명 |
+|------|------|------|
+| Fast Kill | 최근 8거래 **연속** 손실 (pnl_bps < 0) | 급격한 손실 시 즉시 중단 |
+| Slow Kill | 최근 15거래 PF < 0.75 | 만성적 손실 시 중단 |
+
+- 부팅 시 JSONL에서 최근 N건 복원 → 소급 검증 (재시작해도 킬스위치 상태 유지)
+- 킬스위치 발동 시: 신규 진입만 차단, 기존 포지션의 SL/TP 청산은 정상 작동
+- 수동 해제: `RESET_KILL_SWITCH_MTF_{SYMBOL}=True` 환경변수 + 재시작
+
+### 메인 루프 (MTFPullbackBot)
+
+```
+초기화: DataFetcher.initialize() → 250개 캔들 로드 → 초기 Meta 상태 출력 → Discord 알림
+  ↓
+while True (1초 주기):
+  ├─ 30초마다: _poll_and_update() → 15m/1h 최신 캔들 추가
+  ├─ 15m 캔들 마감 감지 (TimeframeSync):
+  │    ├─ Heartbeat 로그 (Meta, ADX, EMA50/200, ATR, Close, Position)
+  │    ├─ TriggerStrategy.generate_signal(df_15m, meta_state)
+  │    ├─ 신호 ≠ HOLD → ExecutionManager.execute() → Discord 진입 알림
+  │    └─ 신호 = HOLD → 사유 로그
+  └─ 포지션 보유 중: _check_sl_tp() → SL/TP 도달 시 청산 + Discord 알림
+```
+
+- 1초 루프인 이유: TimeframeSync의 2~5초 윈도우를 놓치지 않기 위함
+- 15m 중복 체크 방지: `_last_15m_check_ts`로 1분 이내 같은 캔들 이중 처리 차단
+- 캔들 마감 감지 시 즉시 `_poll_and_update()` 한 번 더 호출하여 최신 데이터 보장
+
+### 메인 봇과의 차이점
+
+| 항목 | 메인 봇 (`bot.py`) | MTF 봇 (`mtf_bot.py`) |
+|------|-------------------|----------------------|
+| 데이터 소스 | WebSocket (실시간 스트림) | REST 폴링 (30초 주기) |
+| 타임프레임 | 15분봉 단일 | 1h (추세) + 15m (진입) |
+| 신호 방식 | RSI·MACD·BB·EMA·StochRSI 가중치 합산 | 3캔들 풀백 시퀀스 패턴 |
+| ML 필터 | LightGBM/ONNX (26 피처) | 없음 (패턴 자체가 필터) |
+| 상관관계 | BTC/ETH 피처 사용 | 사용 안 함 |
+| SL/TP 계산 | 15m ATR 기반 | 1h ATR 기반 |
+| 반대 시그널 재진입 | 지원 (close → 역방향 open) | 미지원 (포지션 중 신호 무시) |
+| 실행 모드 | Live (실주문) | Dry-run (가상 주문) |
+| 프로세스 | 메인 프로세스 내 asyncio.gather | 별도 프로세스/Docker 서비스 |
 
 ### 설계 원칙
 
-- **Look-ahead bias 원천 차단**: `get_1h_dataframe_completed()`가 `[:-1]`로 미완성 봉 제거, 따라서 버퍼 250개 → 완성 249개 → EMA 200 정상 계산
+- **Look-ahead bias 원천 차단**: `_remove_incomplete_candle()`이 현재 진행 중인 캔들을 조건부 제거. 버퍼 250개 → 미완성 봉 제외 → EMA 200 정상 계산
 - **REST 폴링 안정성**: WebSocket 대신 30초 주기 REST 폴링으로 연결 끊김 리스크 제거
 - **Binance 서버 딜레이 고려**: 캔들 마감 판별 시 2~5초 윈도우 적용
 - **메인 봇과 독립**: `bot.py`와 별도 프로세스, 별도 Docker 서비스로 배포
+- **듀얼 킬스위치**: `ExecutionManager`에 내장. Fast Kill(8연패) + Slow Kill(15거래 PF<0.75, bps 기반). 부팅 시 JSONL에서 이력 복원 + 소급 검증. 수동 해제: `RESET_KILL_SWITCH_MTF_{SYMBOL}=True`
 
 ---
 
@@ -721,7 +852,7 @@ pytest tests/ -v          # 전체 실행
 bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 ```
 
-`tests/` 폴더에 19개 테스트 파일, 총 **183개의 테스트 케이스**가 작성되어 있습니다.
+`tests/` 폴더에 19개 테스트 파일, 총 **191개의 테스트 케이스**가 작성되어 있습니다.
 
 ### 6.2 모듈별 테스트 현황
 
@@ -743,7 +874,7 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `test_dashboard_api.py` | `dashboard/` | 16 | 대시보드 API 엔드포인트, 거래 통계 |
 | `test_log_parser.py` | `dashboard/` | 8 | 로그 파싱, 필터링 |
 | `test_ml_pipeline_fixes.py` | ML 파이프라인 | 7 | ML 파이프라인 버그 수정 검증 |
-| `test_mtf_bot.py` | `src/mtf_bot.py` | 20 | MetaFilter, TriggerStrategy, ExecutionManager, SL/TP 체크 |
+| `test_mtf_bot.py` | `src/mtf_bot.py` | 28 | MetaFilter, TriggerStrategy, ExecutionManager, SL/TP 체크, 킬스위치 |
 
 > `test_mlx_filter.py`는 Apple Silicon(`mlx` 패키지)이 없는 환경에서 자동 스킵됩니다.
 
