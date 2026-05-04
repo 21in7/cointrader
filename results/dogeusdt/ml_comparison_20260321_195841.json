@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-03-21T19:58:41.732033",
+  "symbols": [
+    "DOGEUSDT"
+  ],
+  "ml_off": {
+    "total_trades": 322,
+    "total_pnl": -1547.342,
+    "return_pct": -154.73,
+    "win_rate": 31.37,
+    "avg_win": 44.161,
+    "avg_loss": -27.1837,
+    "payoff_ratio": 1.62,
+    "max_consecutive_losses": 9,
+    "profit_factor": 0.74,
+    "max_drawdown_pct": 155.09,
+    "sharpe_ratio": -23.72,
+    "total_fees": 891.5776,
+    "close_reasons": {
+      "STOP_LOSS": 198,
+      "REVERSE_SIGNAL": 58,
+      "TAKE_PROFIT": 66
+    }
+  },
+  "ml_on": {
+    "total_trades": 20,
+    "total_pnl": -173.2651,
+    "return_pct": -17.33,
+    "win_rate": 35.0,
+    "avg_win": 42.0257,
+    "avg_loss": -35.9573,
+    "payoff_ratio": 1.17,
+    "max_consecutive_losses": 3,
+    "profit_factor": 0.63,
+    "max_drawdown_pct": 18.86,
+    "sharpe_ratio": -40.35,
+    "total_fees": 77.1422,
+    "close_reasons": {
+      "STOP_LOSS": 13,
+      "REVERSE_SIGNAL": 4,
+      "TAKE_PROFIT": 3
+    }
+  }
+}

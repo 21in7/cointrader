@@ -1,0 +1,188 @@
+{
+  "mode": "walk_forward",
+  "config": {
+    "symbols": [
+      "DOGEUSDT"
+    ],
+    "start": null,
+    "end": null,
+    "initial_balance": 1000.0,
+    "leverage": 10,
+    "fee_pct": 0.04,
+    "slippage_pct": 0.01,
+    "use_ml": true,
+    "ml_threshold": 0.55,
+    "max_daily_loss_pct": 0.05,
+    "max_positions": 3,
+    "max_same_direction": 2,
+    "margin_max_ratio": 0.5,
+    "margin_min_ratio": 0.2,
+    "margin_decay_rate": 0.0006,
+    "atr_sl_mult": 1.5,
+    "atr_tp_mult": 3.0,
+    "min_notional": 5.0,
+    "signal_threshold": 3,
+    "adx_threshold": 0,
+    "volume_multiplier": 1.5,
+    "train_months": 6,
+    "test_months": 1,
+    "time_weight_decay": 2.0,
+    "negative_ratio": 3
+  },
+  "summary": {
+    "total_trades": 2,
+    "total_pnl": -84.5014,
+    "return_pct": -8.45,
+    "win_rate": 0.0,
+    "avg_win": 0.0,
+    "avg_loss": -42.2507,
+    "payoff_ratio": 0.0,
+    "max_consecutive_losses": 2,
+    "profit_factor": 0.0,
+    "max_drawdown_pct": 4.28,
+    "sharpe_ratio": -5831.15,
+    "total_fees": 7.8265,
+    "close_reasons": {
+      "STOP_LOSS": 2
+    }
+  },
+  "folds": [
+    {
+      "fold": 1,
+      "train_period": "2025-03-05 ~ 2025-09-05",
+      "test_period": "2025-09-05 ~ 2025-10-05",
+      "summary": {
+        "total_trades": 2,
+        "total_pnl": -84.5014,
+        "return_pct": -8.45,
+        "win_rate": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": -42.2507,
+        "payoff_ratio": 0.0,
+        "max_consecutive_losses": 2,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 4.28,
+        "sharpe_ratio": -5831.15,
+        "total_fees": 7.8265,
+        "close_reasons": {
+          "STOP_LOSS": 2
+        }
+      }
+    }
+  ],
+  "trades": [
+    {
+      "symbol": "DOGEUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-10-03 14:00:00",
+      "exit_time": "2025-10-03 14:30:00",
+      "entry_price": 0.253975,
+      "exit_price": 0.255986,
+      "quantity": 19685.0,
+      "sl": 0.255986,
+      "tp": 0.249952,
+      "gross_pnl": -39.591591,
+      "entry_fee": 1.999796,
+      "exit_fee": 2.015633,
+      "net_pnl": -43.60702,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": 0.6215,
+      "indicators": {
+        "rsi": 39.31265367759862,
+        "macd_hist": -9.917203695834255e-06,
+        "atr": 0.001340837894829163,
+        "adx": 22.11118870853989
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "DOGEUSDT",
+      "side": "LONG",
+      "entry_time": "2025-10-04 02:00:00",
+      "exit_time": "2025-10-04 03:00:00",
+      "entry_price": 0.254255,
+      "exit_price": 0.252284,
+      "quantity": 18809.6,
+      "sl": 0.252284,
+      "tp": 0.258198,
+      "gross_pnl": -37.083263,
+      "entry_fee": 1.912977,
+      "exit_fee": 1.898144,
+      "net_pnl": -40.894384,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": 0.589,
+      "indicators": {
+        "rsi": 29.729826487088012,
+        "macd_hist": -0.0004551413936173264,
+        "atr": 0.0013143381729553857,
+        "adx": 17.29524723775582
+      },
+      "fold": 1
+    }
+  ],
+  "validation": {
+    "overall": "FAIL",
+    "checks": [
+      {
+        "name": "exit_after_entry",
+        "passed": true,
+        "level": "FAIL",
+        "message": "모든 트레이드에서 청산 > 진입"
+      },
+      {
+        "name": "sl_tp_direction",
+        "passed": true,
+        "level": "FAIL",
+        "message": "SL/TP 방향 정합"
+      },
+      {
+        "name": "no_overlap",
+        "passed": true,
+        "level": "FAIL",
+        "message": "포지션 비중첩 확인"
+      },
+      {
+        "name": "positive_fees",
+        "passed": true,
+        "level": "FAIL",
+        "message": "수수료 양수 확인"
+      },
+      {
+        "name": "no_negative_balance",
+        "passed": true,
+        "level": "FAIL",
+        "message": "잔고 양수 유지"
+      },
+      {
+        "name": "win_rate_high",
+        "passed": true,
+        "level": "WARNING",
+        "message": "승률 정상 (0.0%)"
+      },
+      {
+        "name": "win_rate_low",
+        "passed": false,
+        "level": "WARNING",
+        "message": "승률 0.0% < 20% — 신호 로직 반전 의심"
+      },
+      {
+        "name": "mdd_nonzero",
+        "passed": true,
+        "level": "WARNING",
+        "message": "MDD 정상 (4.3%)"
+      },
+      {
+        "name": "trade_frequency",
+        "passed": false,
+        "level": "WARNING",
+        "message": "월 평균 2.0건 < 5건 — 신호 생성 부족"
+      },
+      {
+        "name": "profit_factor_high",
+        "passed": true,
+        "level": "WARNING",
+        "message": "PF 정상 (0.00)"
+      }
+    ]
+  }
+}

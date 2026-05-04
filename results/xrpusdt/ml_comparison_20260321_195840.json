@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-03-21T19:58:40.087843",
+  "symbols": [
+    "XRPUSDT"
+  ],
+  "ml_off": {
+    "total_trades": 362,
+    "total_pnl": -1076.1058,
+    "return_pct": -107.61,
+    "win_rate": 36.74,
+    "avg_win": 30.9612,
+    "avg_loss": -22.681,
+    "payoff_ratio": 1.37,
+    "max_consecutive_losses": 8,
+    "profit_factor": 0.79,
+    "max_drawdown_pct": 117.67,
+    "sharpe_ratio": -18.8,
+    "total_fees": 1094.0448,
+    "close_reasons": {
+      "STOP_LOSS": 202,
+      "TAKE_PROFIT": 74,
+      "REVERSE_SIGNAL": 84,
+      "END_OF_DATA": 2
+    }
+  },
+  "ml_on": {
+    "total_trades": 14,
+    "total_pnl": 2.0995,
+    "return_pct": 0.21,
+    "win_rate": 35.71,
+    "avg_win": 38.8329,
+    "avg_loss": -21.3406,
+    "payoff_ratio": 1.82,
+    "max_consecutive_losses": 6,
+    "profit_factor": 1.01,
+    "max_drawdown_pct": 11.88,
+    "sharpe_ratio": 0.74,
+    "total_fees": 54.5343,
+    "close_reasons": {
+      "STOP_LOSS": 7,
+      "REVERSE_SIGNAL": 4,
+      "TAKE_PROFIT": 3
+    }
+  }
+}

@@ -1,0 +1,382 @@
+{
+  "mode": "walk_forward",
+  "config": {
+    "symbols": [
+      "XRPUSDT"
+    ],
+    "start": null,
+    "end": null,
+    "initial_balance": 1000.0,
+    "leverage": 20,
+    "fee_pct": 0.04,
+    "slippage_pct": 0.01,
+    "use_ml": false,
+    "ml_threshold": 0.55,
+    "max_daily_loss_pct": 0.05,
+    "max_positions": 3,
+    "max_same_direction": 2,
+    "margin_max_ratio": 0.5,
+    "margin_min_ratio": 0.2,
+    "margin_decay_rate": 0.0006,
+    "atr_sl_mult": 1.5,
+    "atr_tp_mult": 4.0,
+    "min_notional": 5.0,
+    "signal_threshold": 3,
+    "adx_threshold": 25.0,
+    "volume_multiplier": 2.5,
+    "train_months": 6,
+    "test_months": 1,
+    "time_weight_decay": 2.0,
+    "negative_ratio": 3
+  },
+  "summary": {
+    "total_trades": 10,
+    "total_pnl": -71.4118,
+    "return_pct": -7.14,
+    "win_rate": 30.0,
+    "avg_win": 116.5629,
+    "avg_loss": -60.1572,
+    "payoff_ratio": 1.94,
+    "max_consecutive_losses": 4,
+    "profit_factor": 0.83,
+    "max_drawdown_pct": 28.16,
+    "sharpe_ratio": -15.9,
+    "total_fees": 75.9924,
+    "close_reasons": {
+      "TAKE_PROFIT": 3,
+      "STOP_LOSS": 7
+    }
+  },
+  "folds": [
+    {
+      "fold": 1,
+      "train_period": "2025-03-05 ~ 2025-09-05",
+      "test_period": "2025-09-05 ~ 2025-10-05",
+      "summary": {
+        "total_trades": 10,
+        "total_pnl": -71.4118,
+        "return_pct": -7.14,
+        "win_rate": 30.0,
+        "avg_win": 116.5629,
+        "avg_loss": -60.1572,
+        "payoff_ratio": 1.94,
+        "max_consecutive_losses": 4,
+        "profit_factor": 0.83,
+        "max_drawdown_pct": 28.16,
+        "sharpe_ratio": -15.9,
+        "total_fees": 75.9924,
+        "close_reasons": {
+          "TAKE_PROFIT": 3,
+          "STOP_LOSS": 7
+        }
+      }
+    }
+  ],
+  "trades": [
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-05 19:45:00",
+      "exit_time": "2025-09-05 22:15:00",
+      "entry_price": 2.863514,
+      "exit_price": 2.815423,
+      "quantity": 3491.9,
+      "sl": 2.881548,
+      "tp": 2.815423,
+      "gross_pnl": 167.927076,
+      "entry_fee": 3.999641,
+      "exit_fee": 3.93247,
+      "net_pnl": 159.994965,
+      "close_reason": "TAKE_PROFIT",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 66.8667614741176,
+        "macd_hist": 0.005566660638547516,
+        "atr": 0.012022614930199287,
+        "adx": 25.794325095274626
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "LONG",
+      "entry_time": "2025-09-07 07:30:00",
+      "exit_time": "2025-09-07 10:15:00",
+      "entry_price": 2.831483,
+      "exit_price": 2.825709,
+      "quantity": 3310.6,
+      "sl": 2.825709,
+      "tp": 2.846882,
+      "gross_pnl": -19.117005,
+      "entry_fee": 3.749563,
+      "exit_fee": 3.741916,
+      "net_pnl": -26.608485,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 70.72939012092385,
+        "macd_hist": 0.00013947818915852105,
+        "atr": 0.0038496557346203194,
+        "adx": 25.87514662158794
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-07 14:15:00",
+      "exit_time": "2025-09-07 14:30:00",
+      "entry_price": 2.888611,
+      "exit_price": 2.907326,
+      "quantity": 3295.3,
+      "sl": 2.907326,
+      "tp": 2.838705,
+      "gross_pnl": -61.671288,
+      "entry_fee": 3.807536,
+      "exit_fee": 3.832205,
+      "net_pnl": -69.311028,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 76.27147788789821,
+        "macd_hist": 0.006331113894477991,
+        "atr": 0.012476615713124774,
+        "adx": 29.135371839765913
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-09 07:00:00",
+      "exit_time": "2025-09-09 07:15:00",
+      "entry_price": 3.009099,
+      "exit_price": 3.026836,
+      "quantity": 3264.0,
+      "sl": 3.026836,
+      "tp": 2.9618,
+      "gross_pnl": -57.893469,
+      "entry_fee": 3.92868,
+      "exit_fee": 3.951837,
+      "net_pnl": -65.773986,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 73.38194905544675,
+        "macd_hist": 0.006160466326798137,
+        "atr": 0.011824646391069867,
+        "adx": 28.105801823891394
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-12 20:45:00",
+      "exit_time": "2025-09-13 08:45:00",
+      "entry_price": 3.121788,
+      "exit_price": 3.143446,
+      "quantity": 3197.5,
+      "sl": 3.143446,
+      "tp": 3.064033,
+      "gross_pnl": -69.251372,
+      "entry_fee": 3.992767,
+      "exit_fee": 4.020467,
+      "net_pnl": -77.264606,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 78.88995114530964,
+        "macd_hist": 0.004793783646225545,
+        "atr": 0.014438649390670705,
+        "adx": 33.848649235778474
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-14 11:15:00",
+      "exit_time": "2025-09-14 13:45:00",
+      "entry_price": 3.066993,
+      "exit_price": 3.033085,
+      "quantity": 3002.8,
+      "sl": 3.079709,
+      "tp": 3.033085,
+      "gross_pnl": 101.818765,
+      "entry_fee": 3.683827,
+      "exit_fee": 3.643099,
+      "net_pnl": 94.491838,
+      "close_reason": "TAKE_PROFIT",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 31.419480021379645,
+        "macd_hist": -0.0003629091436070245,
+        "atr": 0.008476985221720718,
+        "adx": 31.882046477112183
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-20 14:00:00",
+      "exit_time": "2025-09-20 14:45:00",
+      "entry_price": 2.971603,
+      "exit_price": 2.980986,
+      "quantity": 3353.4,
+      "sl": 2.980986,
+      "tp": 2.94658,
+      "gross_pnl": -31.466181,
+      "entry_fee": 3.985989,
+      "exit_fee": 3.998576,
+      "net_pnl": -39.450746,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 36.09553473183674,
+        "macd_hist": -0.00018720159437711752,
+        "atr": 0.006255577606168083,
+        "adx": 28.84076206692945
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "LONG",
+      "entry_time": "2025-09-24 19:45:00",
+      "exit_time": "2025-09-24 20:30:00",
+      "entry_price": 2.976198,
+      "exit_price": 2.955734,
+      "quantity": 3279.9,
+      "sl": 2.955734,
+      "tp": 3.030766,
+      "gross_pnl": -67.117005,
+      "entry_fee": 3.904652,
+      "exit_fee": 3.877805,
+      "net_pnl": -74.899463,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 77.25608496751632,
+        "macd_hist": 0.00019635721897620986,
+        "atr": 0.013642083686890932,
+        "adx": 66.36435142210216
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-25 12:15:00",
+      "exit_time": "2025-09-25 12:30:00",
+      "entry_price": 2.793221,
+      "exit_price": 2.811993,
+      "quantity": 3226.0,
+      "sl": 2.811993,
+      "tp": 2.743161,
+      "gross_pnl": -60.559206,
+      "entry_fee": 3.604372,
+      "exit_fee": 3.628596,
+      "net_pnl": -67.792174,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 27.256149561284357,
+        "macd_hist": -0.0005773233003328118,
+        "atr": 0.012514818420656685,
+        "adx": 36.706433983392714
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "LONG",
+      "entry_time": "2025-09-28 22:00:00",
+      "exit_time": "2025-09-29 07:15:00",
+      "entry_price": 2.850785,
+      "exit_price": 2.885643,
+      "quantity": 2923.6,
+      "sl": 2.837713,
+      "tp": 2.885643,
+      "gross_pnl": 101.910302,
+      "entry_fee": 3.333822,
+      "exit_fee": 3.374586,
+      "net_pnl": 95.201894,
+      "close_reason": "TAKE_PROFIT",
+      "ml_proba": null,
+      "indicators": {
+        "rsi": 69.94607598871028,
+        "macd_hist": 0.0002172037763433672,
+        "atr": 0.008714453238038499,
+        "adx": 45.96715774504039
+      },
+      "fold": 1
+    }
+  ],
+  "validation": {
+    "overall": "PASS",
+    "checks": [
+      {
+        "name": "exit_after_entry",
+        "passed": true,
+        "level": "FAIL",
+        "message": "모든 트레이드에서 청산 > 진입"
+      },
+      {
+        "name": "sl_tp_direction",
+        "passed": true,
+        "level": "FAIL",
+        "message": "SL/TP 방향 정합"
+      },
+      {
+        "name": "no_overlap",
+        "passed": true,
+        "level": "FAIL",
+        "message": "포지션 비중첩 확인"
+      },
+      {
+        "name": "positive_fees",
+        "passed": true,
+        "level": "FAIL",
+        "message": "수수료 양수 확인"
+      },
+      {
+        "name": "no_negative_balance",
+        "passed": true,
+        "level": "FAIL",
+        "message": "잔고 양수 유지"
+      },
+      {
+        "name": "win_rate_high",
+        "passed": true,
+        "level": "WARNING",
+        "message": "승률 정상 (30.0%)"
+      },
+      {
+        "name": "win_rate_low",
+        "passed": true,
+        "level": "WARNING",
+        "message": "승률 정상 (30.0%)"
+      },
+      {
+        "name": "mdd_nonzero",
+        "passed": true,
+        "level": "WARNING",
+        "message": "MDD 정상 (28.2%)"
+      },
+      {
+        "name": "trade_frequency",
+        "passed": true,
+        "level": "WARNING",
+        "message": "월 평균 10.0건"
+      },
+      {
+        "name": "profit_factor_high",
+        "passed": true,
+        "level": "WARNING",
+        "message": "PF 정상 (0.83)"
+      }
+    ]
+  }
+}

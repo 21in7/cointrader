@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-03-21T19:58:41.166218",
+  "symbols": [
+    "SOLUSDT"
+  ],
+  "ml_off": {
+    "total_trades": 346,
+    "total_pnl": -1287.9804,
+    "return_pct": -128.8,
+    "win_rate": 33.82,
+    "avg_win": 35.5174,
+    "avg_loss": -23.7708,
+    "payoff_ratio": 1.49,
+    "max_consecutive_losses": 11,
+    "profit_factor": 0.76,
+    "max_drawdown_pct": 176.42,
+    "sharpe_ratio": -20.59,
+    "total_fees": 940.6664,
+    "close_reasons": {
+      "STOP_LOSS": 187,
+      "TAKE_PROFIT": 68,
+      "REVERSE_SIGNAL": 91
+    }
+  },
+  "ml_on": {
+    "total_trades": 14,
+    "total_pnl": 80.7573,
+    "return_pct": 8.08,
+    "win_rate": 35.71,
+    "avg_win": 72.906,
+    "avg_loss": -31.5303,
+    "payoff_ratio": 2.31,
+    "max_consecutive_losses": 4,
+    "profit_factor": 1.28,
+    "max_drawdown_pct": 11.46,
+    "sharpe_ratio": 18.5,
+    "total_fees": 51.8491,
+    "close_reasons": {
+      "STOP_LOSS": 7,
+      "TAKE_PROFIT": 5,
+      "REVERSE_SIGNAL": 2
+    }
+  }
+}

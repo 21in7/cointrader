@@ -1,0 +1,214 @@
+{
+  "mode": "walk_forward",
+  "config": {
+    "symbols": [
+      "XRPUSDT"
+    ],
+    "start": null,
+    "end": null,
+    "initial_balance": 1000.0,
+    "leverage": 10,
+    "fee_pct": 0.04,
+    "slippage_pct": 0.01,
+    "use_ml": true,
+    "ml_threshold": 0.55,
+    "max_daily_loss_pct": 0.05,
+    "max_positions": 3,
+    "max_same_direction": 2,
+    "margin_max_ratio": 0.5,
+    "margin_min_ratio": 0.2,
+    "margin_decay_rate": 0.0006,
+    "atr_sl_mult": 1.5,
+    "atr_tp_mult": 3.0,
+    "min_notional": 5.0,
+    "signal_threshold": 3,
+    "adx_threshold": 0,
+    "volume_multiplier": 1.5,
+    "train_months": 6,
+    "test_months": 1,
+    "time_weight_decay": 2.0,
+    "negative_ratio": 3
+  },
+  "summary": {
+    "total_trades": 3,
+    "total_pnl": -5.1514,
+    "return_pct": -0.52,
+    "win_rate": 33.33,
+    "avg_win": 66.3376,
+    "avg_loss": -35.7445,
+    "payoff_ratio": 1.86,
+    "max_consecutive_losses": 2,
+    "profit_factor": 0.93,
+    "max_drawdown_pct": 3.76,
+    "sharpe_ratio": -6.68,
+    "total_fees": 11.5694,
+    "close_reasons": {
+      "STOP_LOSS": 2,
+      "TAKE_PROFIT": 1
+    }
+  },
+  "folds": [
+    {
+      "fold": 1,
+      "train_period": "2025-03-05 ~ 2025-09-05",
+      "test_period": "2025-09-05 ~ 2025-10-05",
+      "summary": {
+        "total_trades": 3,
+        "total_pnl": -5.1514,
+        "return_pct": -0.52,
+        "win_rate": 33.33,
+        "avg_win": 66.3376,
+        "avg_loss": -35.7445,
+        "payoff_ratio": 1.86,
+        "max_consecutive_losses": 2,
+        "profit_factor": 0.93,
+        "max_drawdown_pct": 3.76,
+        "sharpe_ratio": -6.68,
+        "total_fees": 11.5694,
+        "close_reasons": {
+          "STOP_LOSS": 2,
+          "TAKE_PROFIT": 1
+        }
+      }
+    }
+  ],
+  "trades": [
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-24 03:15:00",
+      "exit_time": "2025-09-24 04:30:00",
+      "entry_price": 2.811019,
+      "exit_price": 2.828555,
+      "quantity": 1778.5,
+      "sl": 2.828555,
+      "tp": 2.775947,
+      "gross_pnl": -31.18734,
+      "entry_fee": 1.999759,
+      "exit_fee": 2.012234,
+      "net_pnl": -35.199332,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": 0.5782,
+      "indicators": {
+        "rsi": 35.41445012242145,
+        "macd_hist": -0.0005539721484064007,
+        "atr": 0.011690503070987813,
+        "adx": 22.830095368917625
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-25 12:15:00",
+      "exit_time": "2025-09-25 12:30:00",
+      "entry_price": 2.793221,
+      "exit_price": 2.811993,
+      "quantity": 1726.9,
+      "sl": 2.811993,
+      "tp": 2.755676,
+      "gross_pnl": -32.41776,
+      "entry_fee": 1.929445,
+      "exit_fee": 1.942412,
+      "net_pnl": -36.289617,
+      "close_reason": "STOP_LOSS",
+      "ml_proba": 0.724,
+      "indicators": {
+        "rsi": 27.256149561284357,
+        "macd_hist": -0.0005773233003328118,
+        "atr": 0.012514818420656685,
+        "adx": 36.706433983392714
+      },
+      "fold": 1
+    },
+    {
+      "symbol": "XRPUSDT",
+      "side": "SHORT",
+      "entry_time": "2025-09-26 09:30:00",
+      "exit_time": "2025-09-26 11:00:00",
+      "entry_price": 2.742026,
+      "exit_price": 2.700663,
+      "quantity": 1692.9,
+      "sl": 2.762707,
+      "tp": 2.700663,
+      "gross_pnl": 70.023157,
+      "entry_fee": 1.85679,
+      "exit_fee": 1.828781,
+      "net_pnl": 66.337586,
+      "close_reason": "TAKE_PROFIT",
+      "ml_proba": 0.8238,
+      "indicators": {
+        "rsi": 42.61073221775071,
+        "macd_hist": -0.0004772649982219266,
+        "atr": 0.013787614360953772,
+        "adx": 15.435644479956943
+      },
+      "fold": 1
+    }
+  ],
+  "validation": {
+    "overall": "FAIL",
+    "checks": [
+      {
+        "name": "exit_after_entry",
+        "passed": true,
+        "level": "FAIL",
+        "message": "모든 트레이드에서 청산 > 진입"
+      },
+      {
+        "name": "sl_tp_direction",
+        "passed": true,
+        "level": "FAIL",
+        "message": "SL/TP 방향 정합"
+      },
+      {
+        "name": "no_overlap",
+        "passed": true,
+        "level": "FAIL",
+        "message": "포지션 비중첩 확인"
+      },
+      {
+        "name": "positive_fees",
+        "passed": true,
+        "level": "FAIL",
+        "message": "수수료 양수 확인"
+      },
+      {
+        "name": "no_negative_balance",
+        "passed": true,
+        "level": "FAIL",
+        "message": "잔고 양수 유지"
+      },
+      {
+        "name": "win_rate_high",
+        "passed": true,
+        "level": "WARNING",
+        "message": "승률 정상 (33.3%)"
+      },
+      {
+        "name": "win_rate_low",
+        "passed": true,
+        "level": "WARNING",
+        "message": "승률 정상 (33.3%)"
+      },
+      {
+        "name": "mdd_nonzero",
+        "passed": true,
+        "level": "WARNING",
+        "message": "MDD 정상 (3.8%)"
+      },
+      {
+        "name": "trade_frequency",
+        "passed": false,
+        "level": "WARNING",
+        "message": "월 평균 3.0건 < 5건 — 신호 생성 부족"
+      },
+      {
+        "name": "profit_factor_high",
+        "passed": true,
+        "level": "WARNING",
+        "message": "PF 정상 (0.93)"
+      }
+    ]
+  }
+}
