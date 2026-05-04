@@ -154,6 +154,7 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-30 | `ls-ratio-backtest` (design + result) | Edge 없음 확정, 폐기 |
 | 2026-03-30 | `fr-oi-backtest` (result) | SHORT PF=1.88이나 대칭성 실패(Case2), 폐기 |
 | 2026-03-30 | `public-api-research-closed` | Binance 공개 API 전수 테스트 완료, 단독 edge 없음 |
-| 2026-03-30 | `mtf-pullback-bot` | MTF Pullback Bot 배포, 4월 OOS Dry-run 검증 진행 중 |
+| 2026-03-30 | `mtf-pullback-bot` | MTF Pullback Bot — **최종 폐기** (OOS+BTC필터 모두 실패) |
 | 2026-04-21 | `mtf-oos-dryrun-result` | 중간 보고 — 24건 Raw PF 0.98 |
 | 2026-05-04 | `mtf-oos-final-result` | **FAIL, 폐기** — 30건 fees_only PF 0.84, SHORT 대칭성 실패 |
+| 2026-05-04 | `mtf-btc-filter` (design + result) | **FAIL, 최종 폐기** — BTC 필터 추가해도 OOS PF 0.90, 베이스라인보다 악화 |
