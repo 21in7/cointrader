@@ -158,3 +158,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-04-21 | `mtf-oos-dryrun-result` | 중간 보고 — 24건 Raw PF 0.98 |
 | 2026-05-04 | `mtf-oos-final-result` | **FAIL, 폐기** — 30건 fees_only PF 0.84, SHORT 대칭성 실패 |
 | 2026-05-04 | `mtf-btc-filter` (design + result) | **FAIL, 최종 폐기** — BTC 필터 추가해도 OOS PF 0.90, 베이스라인보다 악화 |
+| 2026-05-04 | `strategy-post-mortem` | 7전 7패 분석 — 공개 시그널 방향 예측 패러다임 한계, 다음 방향 제안 |
