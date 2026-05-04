@@ -421,3 +421,107 @@ class TestExecutionManager:
         # TP/SL = 2.3/1.5 = 1.533...
         expected_rr = round(2.3 / 1.5, 2)
         assert result["risk_reward"] == expected_rr
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Test 5: ExecutionManager 킬스위치
+# ═══════════════════════════════════════════════════════════════════
+
+
+class TestExecutionManagerKillSwitch:
+    """ExecutionManager 킬스위치 (Fast Kill / Slow Kill) 테스트."""
+
+    def _make_em(self) -> ExecutionManager:
+        """JSONL 복원 없이 깨끗한 ExecutionManager 생성."""
+        em = ExecutionManager.__new__(ExecutionManager)
+        em.symbol = "TESTUSDT"
+        em.current_position = None
+        em._entry_price = None
+        em._entry_ts = None
+        em._sl_price = None
+        em._tp_price = None
+        em._atr_at_entry = None
+        em._killed = False
+        em._trade_history = []
+        return em
+
+    def test_fast_kill_triggers_after_8_consecutive_losses(self):
+        """8연속 손실 시 Fast Kill 발동."""
+        em = self._make_em()
+        for _ in range(8):
+            em._append_trade_history(-50.0)
+        assert em._check_kill_switch() is True
+        assert em._killed is True
+
+    def test_fast_kill_not_triggered_with_7_losses(self):
+        """7연속 손실은 Fast Kill 미발동."""
+        em = self._make_em()
+        for _ in range(7):
+            em._append_trade_history(-50.0)
+        assert em._check_kill_switch() is False
+        assert em._killed is False
+
+    def test_fast_kill_broken_by_single_win(self):
+        """연속 손실 중 1회 수익이 있으면 Fast Kill 미발동."""
+        em = self._make_em()
+        for _ in range(4):
+            em._append_trade_history(-50.0)
+        em._append_trade_history(10.0)  # 중간에 수익
+        for _ in range(3):
+            em._append_trade_history(-50.0)
+        assert em._check_kill_switch() is False
+
+    def test_slow_kill_triggers_when_pf_below_threshold(self):
+        """최근 15거래 PF < 0.75 시 Slow Kill 발동."""
+        em = self._make_em()
+        # 12패 (-100 bps each) + 3승 (+50 bps each)
+        # gross_profit=150, gross_loss=1200, PF=0.125
+        for _ in range(12):
+            em._append_trade_history(-100.0)
+        for _ in range(3):
+            em._append_trade_history(50.0)
+        assert em._check_kill_switch() is True
+        assert em._killed is True
+
+    def test_slow_kill_not_triggered_when_pf_above_threshold(self):
+        """PF > 0.75면 Slow Kill 미발동."""
+        em = self._make_em()
+        # 7패 (-100 each) + 8승 (+100 each)
+        # gross_profit=800, gross_loss=700, PF=1.14
+        for _ in range(7):
+            em._append_trade_history(-100.0)
+        for _ in range(8):
+            em._append_trade_history(100.0)
+        assert em._check_kill_switch() is False
+
+    def test_killed_state_blocks_new_entry(self):
+        """킬스위치 발동 후 신규 진입이 차단된다."""
+        em = self._make_em()
+        em._killed = True
+        result = em.execute("EXECUTE_LONG", 2.0, 0.01)
+        assert result is None
+
+    def test_killed_state_allows_existing_sl_tp(self):
+        """킬스위치 발동 후에도 기존 포지션의 청산은 정상 동작."""
+        em = self._make_em()
+        # 먼저 포지션 진입
+        em.execute("EXECUTE_SHORT", 2.0, 0.01)
+        # 킬스위치 발동
+        em._killed = True
+        # 청산은 정상 동작해야 함
+        em.close_position("SL 히트", exit_price=2.015, pnl_bps=-75.0)
+        assert em.current_position is None
+
+    def test_kill_switch_integrated_with_close(self):
+        """close_position 호출 시 자동으로 킬스위치 판정이 실행된다."""
+        em = self._make_em()
+        # 7번 손실 기록
+        for _ in range(7):
+            em._append_trade_history(-50.0)
+        # 포지션 진입 후 8번째 손실로 청산
+        em.execute("EXECUTE_SHORT", 2.0, 0.01)
+        em.close_position("SL 히트", exit_price=2.015, pnl_bps=-75.0)
+        # 8연패 → Fast Kill 발동
+        assert em._killed is True
+        # 다음 진입 차단
+        assert em.execute("EXECUTE_LONG", 1.95, 0.01) is None

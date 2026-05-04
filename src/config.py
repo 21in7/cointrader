@@ -106,3 +106,21 @@ class Config:
             volume_multiplier=self.volume_multiplier,
         ))
 
+
+# ── OOS 사후보정용 비용 모델 ──────────────────────────────────────
+COST_MODEL = {
+    "taker_fee_bps": 4.0,       # Binance USDⓈ-M Futures VIP 0
+    "maker_fee_bps": 2.0,       # 향후 limit TP 도입 대비
+    # MTF bot 주문 타입 (현재 전부 MARKET = taker)
+    "entry_order_type": "taker",
+    "sl_order_type": "taker",
+    "tp_order_type": "taker",
+}
+
+# 3개 프리셋 시나리오 (확장 금지, 이 셋으로 고정)
+COST_SCENARIOS = {
+    "fees_only":   {"slippage_bps_per_side": 0.0, "funding_bps_per_8h": 0.0},
+    "realistic":   {"slippage_bps_per_side": 1.0, "funding_bps_per_8h": 1.0},
+    "pessimistic": {"slippage_bps_per_side": 3.0, "funding_bps_per_8h": 2.0},
+}
+

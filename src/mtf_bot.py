@@ -390,6 +390,21 @@ class TriggerStrategy:
 
 _MTF_TRADE_DIR = Path("data/trade_history")
 
+# ── 킬스위치 상수 (bot.py와 동일 기준) ──
+_FAST_KILL_STREAK = 8           # 연속 손실 N회 → 즉시 중단
+_SLOW_KILL_WINDOW = 15          # 최근 N거래 PF 산출
+_SLOW_KILL_PF_THRESHOLD = 0.75  # PF < 이 값이면 중단
+
+
+def _tail_lines(path: Path, n: int) -> list[str]:
+    """파일의 마지막 n줄을 읽는다."""
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+        return lines[-n:]
+    except Exception:
+        return []
+
 
 class ExecutionManager:
     """
@@ -408,6 +423,11 @@ class ExecutionManager:
         self._sl_price: Optional[float] = None
         self._tp_price: Optional[float] = None
         self._atr_at_entry: Optional[float] = None
+        # ── 킬스위치 ──
+        self._killed: bool = False
+        self._trade_history: list[dict] = []
+        self._restore_trade_history()
+        self._restore_kill_switch()
 
     def execute(self, signal: str, current_price: float, atr_value: Optional[float]) -> Optional[Dict]:
         """
@@ -422,6 +442,10 @@ class ExecutionManager:
             주문 정보 Dict 또는 None (HOLD / 중복 포지션 / ATR 무효)
         """
         if signal == "HOLD":
+            return None
+
+        if self._killed:
+            logger.warning(f"[ExecutionManager] 킬스위치 발동 상태 — 신규 진입 차단 (신호={signal})")
             return None
 
         if self.current_position is not None:
@@ -503,6 +527,10 @@ class ExecutionManager:
         # JSONL에 기록
         self._save_trade(reason, exit_price, pnl_bps)
 
+        # ── 킬스위치: 거래 이력 추가 + 판정 ──
+        self._append_trade_history(pnl_bps)
+        self._check_kill_switch()
+
         # ── 실주문 (프로덕션 전환 시 주석 해제) ──
         # if self.current_position == "LONG":
         #     await self.exchange.create_market_sell_order(symbol, amount)
@@ -539,6 +567,91 @@ class ExecutionManager:
             logger.info(f"[ExecutionManager] 거래 기록 저장: {path.name}")
         except Exception as e:
             logger.warning(f"[ExecutionManager] 거래 기록 저장 실패: {e}")
+
+    # ── 킬스위치 ──────────────────────────────────────────────────────
+
+    def _trade_history_path(self) -> Path:
+        _MTF_TRADE_DIR.mkdir(parents=True, exist_ok=True)
+        return _MTF_TRADE_DIR / f"mtf_{self.symbol.replace('/', '').replace(':', '').lower()}.jsonl"
+
+    def _restore_trade_history(self) -> None:
+        """부팅 시 JSONL에서 최근 N건의 pnl_bps를 복원한다."""
+        path = self._trade_history_path()
+        if not path.exists():
+            return
+        try:
+            tail_n = max(_FAST_KILL_STREAK, _SLOW_KILL_WINDOW)
+            lines = _tail_lines(path, tail_n)
+            for line in lines:
+                line = line.strip()
+                if line:
+                    record = json.loads(line)
+                    self._trade_history.append({"pnl_bps": record.get("pnl_bps", 0.0)})
+            logger.info(
+                f"[ExecutionManager] 거래 이력 복원: {len(self._trade_history)}건"
+            )
+        except Exception as e:
+            logger.warning(f"[ExecutionManager] 거래 이력 복원 실패: {e}")
+
+    def _restore_kill_switch(self) -> None:
+        """부팅 시 리셋 플래그 확인 후, 이력 기반으로 킬스위치 소급 검증."""
+        reset_key = f"RESET_KILL_SWITCH_MTF_{self.symbol.replace('/', '').replace(':', '').upper()}"
+        if os.environ.get(reset_key, "").lower() == "true":
+            logger.info(f"[ExecutionManager] 킬스위치 수동 해제 감지 ({reset_key}=True)")
+            self._killed = False
+            return
+        if self._check_kill_switch(silent=True):
+            logger.warning("[ExecutionManager] 부팅 시 킬스위치 조건 충족 — 신규 진입 차단")
+
+    def _append_trade_history(self, pnl_bps: float) -> None:
+        """킬스위치 판단용 거래 이력에 추가한다."""
+        self._trade_history.append({"pnl_bps": round(pnl_bps, 1)})
+        max_window = max(_FAST_KILL_STREAK, _SLOW_KILL_WINDOW)
+        if len(self._trade_history) > max_window * 2:
+            self._trade_history = self._trade_history[-max_window:]
+
+    def _check_kill_switch(self, silent: bool = False) -> bool:
+        """킬스위치 조건을 검사하고, 발동 시 True를 반환한다.
+
+        Fast Kill: 최근 8연속 손실 (pnl_bps < 0)
+        Slow Kill: 최근 15거래 PF < 0.75
+        """
+        trades = self._trade_history
+        if not trades:
+            return False
+
+        # Fast Kill
+        if len(trades) >= _FAST_KILL_STREAK:
+            recent = trades[-_FAST_KILL_STREAK:]
+            if all(t["pnl_bps"] < 0 for t in recent):
+                reason = f"Fast Kill ({_FAST_KILL_STREAK}연속 손실)"
+                self._trigger_kill_switch(reason, silent)
+                return True
+
+        # Slow Kill
+        if len(trades) >= _SLOW_KILL_WINDOW:
+            recent = trades[-_SLOW_KILL_WINDOW:]
+            gross_profit = sum(t["pnl_bps"] for t in recent if t["pnl_bps"] > 0)
+            gross_loss = abs(sum(t["pnl_bps"] for t in recent if t["pnl_bps"] < 0))
+            if gross_loss > 0:
+                pf = gross_profit / gross_loss
+                if pf < _SLOW_KILL_PF_THRESHOLD:
+                    reason = f"Slow Kill (최근 {_SLOW_KILL_WINDOW}거래 PF={pf:.2f})"
+                    self._trigger_kill_switch(reason, silent)
+                    return True
+
+        return False
+
+    def _trigger_kill_switch(self, reason: str, silent: bool = False) -> None:
+        """킬스위치 발동: 상태 변경 + 로그."""
+        self._killed = True
+        msg = (
+            f"[MTF KILL SWITCH] {self.symbol} 신규 진입 중단\n"
+            f"사유: {reason}\n"
+            f"기존 포지션 SL/TP는 정상 작동합니다.\n"
+            f"해제: RESET_KILL_SWITCH_MTF_{self.symbol.replace('/', '').replace(':', '').upper()}=True 후 재시작"
+        )
+        logger.error(msg)
 
     def get_position_info(self) -> Dict:
         """현재 포지션 정보 반환."""
