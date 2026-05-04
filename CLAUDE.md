@@ -65,7 +65,7 @@ bash scripts/deploy_model.sh --symbol XRPUSDT
 4. `src/exchange.py` + `src/risk_manager.py` — Dynamic margin, MARKET orders with SL/TP, daily loss limit (5%), same-direction limit
 5. `src/user_data_stream.py` + `src/notifier.py` — Real-time TP/SL detection via WebSocket, Discord webhooks
 
-**Dual-layer kill switch** (per-symbol, in `src/bot.py`): Fast Kill (8 consecutive net losses) + Slow Kill (last 15 trades PF < 0.75). Trade history persisted to `data/trade_history/{symbol}.jsonl`. Blocks new entries only; existing SL/TP exits work normally. Manual reset via `RESET_KILL_SWITCH_{SYMBOL}=True` env var + restart.
+**Dual-layer kill switch** (per-symbol, in `src/bot.py` and `src/mtf_bot.py`): Fast Kill (8 consecutive net losses) + Slow Kill (last 15 trades PF < 0.75). Trade history persisted to `data/trade_history/{symbol}.jsonl`. Blocks new entries only; existing SL/TP exits work normally. Manual reset via `RESET_KILL_SWITCH_{SYMBOL}=True` (main bot) or `RESET_KILL_SWITCH_MTF_{SYMBOL}=True` (MTF bot) env var + restart. MTF bot uses bps-based PnL for kill switch decisions.
 
 **Parallel execution**: Per-symbol bots run independently via `asyncio.gather()`. Each bot's `user_data_stream` also runs in parallel.
 
@@ -155,3 +155,5 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-03-30 | `fr-oi-backtest` (result) | SHORT PF=1.88이나 대칭성 실패(Case2), 폐기 |
 | 2026-03-30 | `public-api-research-closed` | Binance 공개 API 전수 테스트 완료, 단독 edge 없음 |
 | 2026-03-30 | `mtf-pullback-bot` | MTF Pullback Bot 배포, 4월 OOS Dry-run 검증 진행 중 |
+| 2026-04-21 | `mtf-oos-dryrun-result` | 중간 보고 — 24건 Raw PF 0.98 |
+| 2026-05-04 | `mtf-oos-final-result` | **FAIL, 폐기** — 30건 fees_only PF 0.84, SHORT 대칭성 실패 |
