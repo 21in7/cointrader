@@ -98,5 +98,30 @@
       "reg_lambda": 0.000157
     },
     "weight_scale": 1.783105
+  },
+  {
+    "date": "2026-03-21T19:04:05.287371",
+    "backend": "lgbm",
+    "auc": 0.9237,
+    "best_threshold": 0.5306,
+    "best_precision": 0.494,
+    "best_recall": 0.303,
+    "samples": 12156,
+    "features": 26,
+    "time_weight_decay": 2.0,
+    "model_path": "models/xrpusdt/lgbm_filter.pkl",
+    "tuned_params_path": null,
+    "lgbm_params": {
+      "n_estimators": 434,
+      "learning_rate": 0.123659,
+      "max_depth": 6,
+      "num_leaves": 14,
+      "min_child_samples": 10,
+      "subsample": 0.929062,
+      "colsample_bytree": 0.94633,
+      "reg_alpha": 0.573971,
+      "reg_lambda": 0.000157
+    },
+    "weight_scale": 1.783105
   }
 ]
