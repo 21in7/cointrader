@@ -10,6 +10,9 @@ models/*.pkl
 models/*.onnx
 models/tune_results_*.json
 data/*.parquet
+data/listings/
+data/sentiment_cache/
+data/**/sentiment_15m.parquet
 .worktrees/
 .DS_Store
 .cursor/

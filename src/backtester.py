@@ -123,6 +123,13 @@ class BacktestConfig:
     signal_threshold: int = 3
     adx_threshold: float = 25.0
     volume_multiplier: float = 2.5
+    # 센티먼트 게이트 (게이트 B). off=베이스라인(미적용)
+    # veto       : 신호와 군중 극단이 정면 충돌하면 차단
+    # contrarian : 군중 극단(>=extreme_band)에 *순응하는* 신호만 차단 (페이드)
+    # confirm    : 군중과 *반대* 신호 차단 (ablation 비교용, post-mortem 비권장)
+    sentiment_mode: str = "off"
+    sentiment_threshold: float = 0.5    # veto 충돌 판정 임계 |score|
+    sentiment_extreme_band: float = 1.0  # contrarian 극단 판정 |score|
 
     WARMUP = 60  # 지표 안정화에 필요한 캔들 수
 
@@ -140,6 +147,7 @@ class Position:
     entry_fee: float
     entry_indicators: dict = field(default_factory=dict)
     ml_proba: float | None = None
+    sentiment_score: float | None = None
 
 
 # ── 동기 RiskManager ─────────────────────────────────────────────────
@@ -267,6 +275,87 @@ def _get_ml_proba(ml_filter: MLFilter | None, features: pd.Series) -> float | No
         return None
 
 
+# ── 센티먼트 게이트 (게이트 B) ───────────────────────────────────────
+def _load_sentiment(
+    symbol: str, start: str | None, end: str | None
+) -> pd.DataFrame | None:
+    """data/{symbol}/sentiment_15m.parquet 로드. 없으면 None (graceful)."""
+    path = Path(f"data/{symbol.lower()}/sentiment_15m.parquet")
+    if not path.exists():
+        logger.warning(f"[{symbol}] 센티먼트 parquet 없음 → 게이트 무효(전부 통과)")
+        return None
+    try:
+        df = pd.read_parquet(path)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        if df.index.tz is None:
+            df.index = df.index.tz_localize("UTC")
+        if start:
+            df = df[df.index >= pd.Timestamp(start, tz="UTC")]
+        if end:
+            df = df[df.index <= pd.Timestamp(end, tz="UTC")]
+        return df
+    except Exception as e:
+        logger.warning(f"[{symbol}] 센티먼트 로드 실패 (graceful): {e}")
+        return None
+
+
+def _get_sentiment_score(
+    sent_df: pd.DataFrame | None, ts: pd.Timestamp
+) -> float | None:
+    """ts 의 센티먼트 스코어. 데이터셋이 15m 그리드에 forward-fill 돼 있어
+    look-ahead 없음. 결측/NaN → None (게이트 통과)."""
+    if sent_df is None or "sentiment_score" not in sent_df.columns:
+        return None
+    try:
+        key = ts if ts.tzinfo is not None else ts.tz_localize("UTC")
+        v = sent_df["sentiment_score"].get(key)
+    except (KeyError, TypeError):
+        return None
+    if v is None or pd.isna(v):
+        return None
+    return float(v)
+
+
+def _sentiment_gate(
+    mode: str,
+    signal: str,
+    score: float | None,
+    threshold: float,
+    extreme_band: float,
+) -> bool:
+    """진입 허용 여부. True=허용, False=차단.
+
+    score None(데이터 없음) 또는 mode off → 항상 허용(베이스라인 동일).
+    post-mortem 정합: 군중 *순응*은 기본 차단 대상, 페이드만 허용.
+    """
+    if mode == "off" or score is None:
+        return True
+    if mode == "veto":
+        # 신호와 군중이 정면 충돌하면 차단
+        if signal == "LONG" and score <= -threshold:
+            return False
+        if signal == "SHORT" and score >= threshold:
+            return False
+        return True
+    if mode == "contrarian":
+        # 군중 극단에 *순응하는* 신호만 차단 (extreme bull → LONG 금지)
+        if signal == "LONG" and score >= extreme_band:
+            return False
+        if signal == "SHORT" and score <= -extreme_band:
+            return False
+        return True
+    if mode == "confirm":
+        # 엄격 추세순응: 군중이 *적극 동의*할 때만 허용 (중립도 차단).
+        # ablation 비교 전용 — post-mortem상 실패가 예상되는 패러다임.
+        if signal == "LONG":
+            return score >= threshold
+        if signal == "SHORT":
+            return score <= -threshold
+        return True
+    return True  # 알 수 없는 모드 → 안전하게 통과
+
+
 # ── 메인 엔진 ────────────────────────────────────────────────────────
 class Backtester:
     def __init__(self, cfg: BacktestConfig):
@@ -293,6 +382,12 @@ class Backtester:
         else:
             for sym in cfg.symbols:
                 self.ml_filters[sym] = None
+
+        # 센티먼트 데이터셋 (심볼별, 게이트 B). off면 미로드.
+        self.sentiment_dfs: dict[str, pd.DataFrame | None] = {}
+        if cfg.sentiment_mode != "off":
+            for sym in cfg.symbols:
+                self.sentiment_dfs[sym] = _load_sentiment(sym, cfg.start, cfg.end)
 
     def run(self, ml_models: dict[str, object] | None = None) -> dict:
         """백테스트 실행. 결과 dict(config, summary, trades, validation) 반환.
@@ -495,6 +590,16 @@ class Backtester:
             if ml_proba is not None and ml_proba < self.cfg.ml_threshold:
                 return  # ML 차단
 
+        # 센티먼트 게이트 (ML 게이트와 동형 veto. off/결측 시 통과)
+        sent_score = _get_sentiment_score(
+            self.sentiment_dfs.get(symbol), ts
+        ) if self.cfg.sentiment_mode != "off" else None
+        if not _sentiment_gate(
+            self.cfg.sentiment_mode, signal, sent_score,
+            self.cfg.sentiment_threshold, self.cfg.sentiment_extreme_band,
+        ):
+            return  # 센티먼트 차단
+
         # 포지션 크기 계산
         num_symbols = len(self.cfg.symbols)
         per_symbol_balance = self.balance / num_symbols
@@ -545,6 +650,7 @@ class Backtester:
             entry_fee=entry_fee,
             entry_indicators=indicators_snapshot,
             ml_proba=ml_proba,
+            sentiment_score=sent_score,
         )
         self.positions[symbol] = pos
         self.risk.register(symbol, signal)

@@ -50,6 +50,14 @@ def parse_args():
     p.add_argument("--adx-threshold", type=float, default=0, help="ADX 필터 (0=비활성화, 기본: 0)")
     p.add_argument("--vol-multiplier", type=float, default=1.5, help="거래량 급증 배수 (기본: 1.5)")
 
+    # 센티먼트 게이트 (게이트 B)
+    p.add_argument("--sentiment-mode", choices=["off", "veto", "contrarian", "confirm"],
+                   default="off", help="센티먼트 게이트 모드 (기본: off=베이스라인)")
+    p.add_argument("--sentiment-threshold", type=float, default=0.5,
+                   help="veto/confirm 충돌 판정 |score| (기본: 0.5)")
+    p.add_argument("--sentiment-extreme-band", type=float, default=1.0,
+                   help="contrarian 극단 판정 |score| (기본: 1.0)")
+
     # Walk-Forward
     p.add_argument("--walk-forward", action="store_true", help="Walk-Forward 백테스트 (기간별 모델 학습/검증)")
     p.add_argument("--compare-ml", action="store_true",
@@ -508,6 +516,9 @@ def main():
             signal_threshold=args.signal_threshold,
             adx_threshold=args.adx_threshold,
             volume_multiplier=args.vol_multiplier,
+            sentiment_mode=args.sentiment_mode,
+            sentiment_threshold=args.sentiment_threshold,
+            sentiment_extreme_band=args.sentiment_extreme_band,
             train_months=args.train_months,
             test_months=args.test_months,
         )
@@ -541,6 +552,9 @@ def main():
             signal_threshold=args.signal_threshold,
             adx_threshold=args.adx_threshold,
             volume_multiplier=args.vol_multiplier,
+            sentiment_mode=args.sentiment_mode,
+            sentiment_threshold=args.sentiment_threshold,
+            sentiment_extreme_band=args.sentiment_extreme_band,
         )
         logger.info(f"백테스트 시작: {', '.join(symbols)}")
         bt = Backtester(cfg)

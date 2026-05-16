@@ -166,6 +166,8 @@ Gate 5: 리스크 관리
 
 Walk-Forward 검증 결과 각 폴드 학습 세트에 유효 신호가 약 27건으로, LightGBM이 의미 있는 패턴을 학습하기엔 표본이 부족합니다. 전략 파라미터 스윕에서 ADX 필터 + 거래량 배수 조합만으로 PF 1.57~2.39를 달성하여, 충분한 트레이드 데이터가 축적될 때까지 ML 없이 운영합니다.
 
+**센티먼트 융합 (게이트 A 스캐폴딩 — 봇 미연결):** 비어 있는 ML 게이트 슬롯에 *비가격 텍스트 모달리티* veto/contrarian 필터를 도입하는 리서치 진행 중. TradingAgents Sentiment Analyst 추출본 `src/sentiment_provider.py`(로컬 MLX `localhost:8080`, `temperature=0` 결정론, 응답 캐시) + 과거 데이터셋 빌더 `scripts/build_sentiment_dataset.py`(Alpha Vantage 뉴스 → 15m 정렬, look-ahead 가드). **현재 백테스트(게이트 B) 미통과 상태로 `src/bot.py`에 연결되지 않음.** 설계: `docs/plans/2026-05-16-tradingagents-sentiment-fusion-design.md`.
+
 ---
 
 ## 3. 5개 레이어 상세
