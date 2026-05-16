@@ -123,29 +123,40 @@ efficient market. The value delivered:
 
 ---
 
-## 6. Using This as a Skill Asset
+## 6. Using, Reproducing & Extending This Work
 
-**Target roles**: quantitative research, data science, ML / research
-engineering — any role whose core is "form a hypothesis, kill your own
-idea with evidence, document negative results with rigor."
+This is open source (MIT) so others don't repeat the same dead ends.
 
-**Reusable elevator pitch**:
-> "In a crypto trading research project I systematically falsified 10
-> hypotheses using pre-committed kill criteria and data-first
-> validation. The point isn't that I found alpha — it's the
-> *methodology for killing bad ideas cheaply before risking capital*:
-> a +275 bps signal on partial data that I proved was overfit using the
-> full sample before it could cause a live loss; a gross return shown to
-> vanish after a cost decomposition; a non-deterministic LLM engineered
-> to be reproducible. All 10 negative results are documented and
-> traceable."
+**Reproduce a result**: every hypothesis has a `docs/plans/*-design.md`
+(with pre-committed kill criteria) + `*-result.md`, and a runnable
+script. Example:
+```bash
+python scripts/funding_carry_backtest.py            # #9, fully reproducible
+python scripts/run_backtest.py --symbol XRPUSDT --sentiment-mode off  # #8 baseline
+```
 
-**Single best interview story (recommended)**: #10 — "I saw an
-attractive signal on partial data, but pre-committed criteria and a
-full-sample re-test proved it was overfit, so I killed it." Shows
-idea-killing discipline + statistical-trap awareness + honesty at once.
+**Dispute a result**: the most valuable contribution here is a
+well-argued "your kill was wrong because X." The kill criteria are
+written down precisely so they can be checked against.
+
+**Reuse a component** (each is reasonably self-contained):
+- deterministic LLM provider — `temperature=0` + response-hash cache,
+  zero deps (`src/sentiment_provider.py`)
+- vectorized walk-forward backtester with cost model (`src/backtester.py`)
+- idempotent/resumable Binance fapi pipelines (`scripts/collect_*.py`,
+  `scripts/build_sentiment_dataset.py`)
+- dual-layer kill switch (`src/bot.py`)
+
+**Add a new falsification experiment**: follow the same discipline —
+fix kill criteria *before* running, data-only validation first, honest
+`*-result.md` whatever the outcome. See [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+
+**The methodology generalizes** beyond trading: pre-committed kill
+criteria + cheapest-possible validation + negative results as first-class
+artifacts applies to any empirical/ML research where it is easy to fool
+yourself with overfit, survivorship bias, or gross-vs-net confusion.
 
 **Where the evidence lives**:
-`docs/plans/2026-05-04-strategy-post-mortem.md` (1–7),
+`docs/plans/2026-05-04-strategy-post-mortem.md` (experiments 1–7),
 `docs/plans/2026-05-16~17-*-result.md` (8–10), `CLAUDE.md` plan history,
 `scripts/*_backtest.py` (reproducible code).

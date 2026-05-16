@@ -22,19 +22,24 @@ judgment behind them.
 
 ---
 
-## What this demonstrates
+## Why this might be useful to you
 
-- **Falsification-first research loop** — hypothesis → kill criteria
-  fixed *before* running → cheapest-possible (data-only) validation →
-  honest verdict → negative results documented as first-class artifacts
-  (`docs/plans/*-result.md`) → paradigm-level escalation, not knob-tweaking.
-- **Statistical rigor under pressure** — caught an overfit (+275 bps on a
-  partial sample that collapsed to −82 bps on the full N=323), reasoned
-  about survivorship bias directionally, decomposed gross-vs-net to kill
-  a "structural" edge that was a hidden directional bet.
-- **Reproducibility engineering** — made a non-deterministic LLM
-  bit-reproducible via `temperature=0` + response-hash caching so a
-  backtest could be verified (zero extra dependencies).
+If you are researching crypto trading strategies, this repo can save you
+time and money by showing — with reproducible code — what *does not* work
+and exactly why:
+
+- **A documented falsification loop you can copy** — hypothesis → kill
+  criteria fixed *before* running → cheapest-possible (data-only)
+  validation → honest verdict → negative results kept as first-class
+  artifacts (`docs/plans/*-result.md`) → paradigm-level escalation, not
+  knob-tweaking.
+- **Worked examples of statistical traps** — an overfit caught (+275 bps
+  on a partial sample that collapsed to −82 bps on the full N=323),
+  survivorship bias reasoned about directionally, a "market-neutral"
+  carry shown to be a hidden directional bet via regime decomposition.
+- **A reproducibility pattern worth reusing** — a non-deterministic LLM
+  made bit-reproducible via `temperature=0` + response-hash caching, with
+  zero extra dependencies (`src/sentiment_provider.py`).
 
 ## Engineering (production-grade infrastructure)
 
@@ -87,6 +92,21 @@ Operating the bot itself (API keys, Docker, deployment) is documented in
 [`docs/README.ko.md`](docs/README.ko.md). It trades real funds when
 enabled — validate on Binance Testnet first; past results do not
 guarantee future results; you bear all risk.
+
+## Contributing
+
+Contributions are welcome — but the scope is unusual (this is a
+negative-results research project, not a product). Read
+[`CONTRIBUTING.md`](CONTRIBUTING.md) first. The most valuable
+contributions: reproduce or dispute a documented result, or add a new
+falsification experiment *with the same pre-committed-kill-criteria
+discipline*. There are tagged good-first-issues in `CONTRIBUTING.md`.
+
+## License
+
+[MIT](LICENSE). Research project documenting negative results — not a
+profitable or maintained trading system; not financial advice; trades
+real funds when enabled; you bear all risk.
 
 ---
 
