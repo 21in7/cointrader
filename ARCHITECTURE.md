@@ -958,6 +958,11 @@ bash scripts/run_tests.sh  # 래퍼 스크립트 실행
 | `src/mtf_bot.py` | MTF Bot | 멀티타임프레임 풀백 봇 (1h MetaFilter + 15m TriggerStrategy + Dry-run ExecutionManager) |
 | `src/backtest_validator.py` | MLOps | 백테스트 결과 검증 |
 | `src/logger_setup.py` | — | Loguru 로거 설정 |
+| `src/statarb/precheck.py` | Research(오프라인) | XRP/BTC 공적분 적합성 precheck — PASS/FAIL 게이트 (ADF/KPSS/EG/Johansen/half-life) |
+| `src/statarb/scan.py` | Research(오프라인) | 크로스-알트 공적분 전수 스캔 (Bonferroni/BH 다중비교 보정) |
+| `src/carry/{data,precheck}.py` | Research(오프라인) | spot-perp 펀딩 캐리 precheck (BTC/ETH) + 베이시스 공적분·리스크 게이트 |
+| `src/leadlag/precheck.py` | Research(오프라인) | BTC/ETH→알트 리드-래그 directional precheck (CCF·block bootstrap·BH) |
+| `src/momentum/{data,precheck,walkforward,crisis_alpha}.py` | Research(오프라인) | 저빈도 모멘텀(TSMOM/XSMOM) precheck + walk-forward + 8자산 crisis-alpha 일반성 검증 |
 | `scripts/fetch_history.py` | MLOps | 과거 캔들 + OI/펀딩비 수집 |
 | `scripts/train_model.py` | MLOps | LightGBM 모델 학습 |
 | `scripts/train_mlx_model.py` | MLOps | MLX 신경망 학습 (Apple Silicon GPU) |
