@@ -163,3 +163,4 @@ All design documents and implementation plans are stored in `docs/plans/` with t
 | 2026-05-17 | `funding-carry` (design+result) | **FAIL, 폐기** — 델타중립 펀딩 캐리: 이상화 gross +4.6%/yr이나 TAKER+5%borrow net -0.37%, 3/6심볼만 양, 레짐의존 강세프리미엄(시장중립 아님), 변형B 부호churn 전멸. 사전기준 4개 전부 위반 → **9전9패, from-scratch 재설계 에스컬레이션** |
 | 2026-05-17 | `new-listing-microstructure` (design+result) | **FAIL, 폐기 (10전10패)** — N=323. H1 best slip0.6% -2.6bps/slip1.0% -82.6bps, H2 중앙값 -98bps(아웃라이어 의존). 부분데이터 +275bps 힌트는 저N 아티팩트(전체N서 소멸). 사전기준 5개 위반. 알파 추구 라인 종결 → 인프라/학습 자산 전환 재확인 |
 | 2026-05-17 | `quant-research-case-study` | `docs/CASE-STUDY-quant-research.md` — 10전10패를 반증-우선 리서치 방법론 증거물(스킬 자산)로 종합. 알파 추구 종결의 capstone 산출물 |
+| 2026-05-28 | `maker-fill-killscreen` (result) | **FAIL, maker caveat 종결** — fees_only kill-screen: 전부-maker 상한(왕복 4bps)조차 TOTAL PF 0.95<1.0, SHORT 대칭성 fee와 무관하게 지속(0.56→0.64). edge 부재가 병, 수수료는 증상. Q2(체결 모델링) 불필요 |
