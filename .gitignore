@@ -13,6 +13,7 @@ data/*.parquet
 data/listings/
 data/sentiment_cache/
 data/**/sentiment_15m.parquet
+data/**/carry_15m.parquet
 .worktrees/
 .claude/worktrees/
 .DS_Store

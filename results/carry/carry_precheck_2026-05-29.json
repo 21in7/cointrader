@@ -1,0 +1,96 @@
+{
+  "BTCUSDT": {
+    "symbol": "BTCUSDT",
+    "years": 2.2158624229979464,
+    "cadence_hours": 8.0,
+    "gross_apr": 0.04406738838410749,
+    "net_apr": 0.04316480527279045,
+    "pos_ratio": 0.7948090107737512,
+    "basis_eg_p": 1.8381763383111792e-05,
+    "basis_adf_p": 2.235304498463253e-06,
+    "basis_halflife_days": 0.16243601415852038,
+    "basis_beta": 0.9998704711507438,
+    "johansen_reject_r0": true,
+    "max_dd_pct": 0.412462999999999,
+    "worst_neg_run": 18,
+    "max_adverse_basis_bps": 90.00846523859029,
+    "safe_leverage": 110.54515787626195,
+    "rolling_pos_ratio": 0.9430555555555555,
+    "rolling_median_apr": 0.038756616625000004,
+    "cond_carry_apr": 0.07500304778650649,
+    "pos_run_count": 190,
+    "pos_run_median": 3.0,
+    "pos_run_max": 111,
+    "pos_run_buckets": {
+      "1": 50,
+      "2-3": 51,
+      "4-7": 36,
+      "8-15": 28,
+      "16-31": 12,
+      "32+": 13
+    },
+    "borrow_sensitivity": {
+      "0%": 0.04316480527279045,
+      "5%": -0.006835194727209552,
+      "10%": -0.056835194727209555
+    },
+    "gates": {
+      "펀딩 경제성 (net>10% & 양≥60%)": false,
+      "베이시스 공적분 (EG p<0.01 & HL<3일)": true,
+      "리스크 (1x 풀마진 미청산)": true,
+      "레짐 안정성 (rolling +비중 ≥60%)": true
+    },
+    "PASS": false
+  },
+  "ETHUSDT": {
+    "symbol": "ETHUSDT",
+    "years": 2.216746520647958,
+    "cadence_hours": 8.0,
+    "gross_apr": 0.047363737361053926,
+    "net_apr": 0.04646151422396047,
+    "pos_ratio": 0.7991223793271575,
+    "basis_eg_p": 0.0004191794233095488,
+    "basis_adf_p": 6.372994919316303e-05,
+    "basis_halflife_days": 0.15847135687760092,
+    "basis_beta": 1.0005235357130373,
+    "johansen_reject_r0": true,
+    "max_dd_pct": 0.6074969999999985,
+    "worst_neg_run": 16,
+    "max_adverse_basis_bps": 101.84109752730876,
+    "safe_leverage": 97.7012251594392,
+    "rolling_pos_ratio": 0.9181692094313454,
+    "rolling_median_apr": 0.036487501000000006,
+    "cond_carry_apr": 0.08082080183190969,
+    "pos_run_count": 204,
+    "pos_run_median": 3.0,
+    "pos_run_max": 232,
+    "pos_run_buckets": {
+      "1": 62,
+      "2-3": 62,
+      "4-7": 38,
+      "8-15": 19,
+      "16-31": 15,
+      "32+": 8
+    },
+    "borrow_sensitivity": {
+      "0%": 0.04646151422396047,
+      "5%": -0.003538485776039532,
+      "10%": -0.053538485776039535
+    },
+    "gates": {
+      "펀딩 경제성 (net>10% & 양≥60%)": false,
+      "베이시스 공적분 (EG p<0.01 & HL<3일)": true,
+      "리스크 (1x 풀마진 미청산)": true,
+      "레짐 안정성 (rolling +비중 ≥60%)": true
+    },
+    "PASS": false
+  },
+  "_meta": {
+    "generated": "2026-05-29",
+    "universe": [
+      "BTCUSDT",
+      "ETHUSDT"
+    ],
+    "note": "carry는 long-spot/short-perp 1x 델타중립. borrow는 참고용."
+  }
+}
