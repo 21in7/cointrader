@@ -28,7 +28,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 BASE = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics"
-METRICS = ["FlowInExNtv", "FlowOutExNtv", "PriceUSD", "CapMVRVCur"]
+METRICS = ["FlowInExNtv", "FlowOutExNtv", "PriceUSD", "CapMVRVCur",
+           "AdrActCnt", "TxCnt"]   # 바스켓(접근2): 밸류에이션·네트워크활동 추가
 ASSETS = ["btc", "eth"]
 START_TIME = "2010-01-01"          # 상장 이후 전체 (실제 가용 시점부터 채워짐)
 PAGE_SIZE = 10000
